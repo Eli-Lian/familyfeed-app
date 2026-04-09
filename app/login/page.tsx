@@ -24,12 +24,10 @@ export default function LoginPage() {
       return;
     }
     setLoading(true);
-    const origin =
-      typeof window !== "undefined" ? window.location.origin : "";
     const { error: signError } = await supabase.auth.signInWithOtp({
       email: trimmed,
       options: {
-        emailRedirectTo: origin ? `${origin}/auth/callback` : undefined,
+        emailRedirectTo: "https://familyfeed-app.vercel.app/auth/callback",
       },
     });
     setLoading(false);
