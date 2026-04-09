@@ -15,31 +15,31 @@ export default function Home() {
 
     async function checkAuth() {
       const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (cancelled) return;
 
-      if (!session) {
+      if (!user) {
         router.push("/login");
         return;
       }
 
-      const { data: family, error: famErr } = await supabase
+      // limit(1): reliable with 0 or 1+ rows (avoid .single() PGRST116 / multiple-row errors)
+      const { data: famRows, error: famErr } = await supabase
         .from("families")
         .select("id")
-        .eq("created_by", session.user.id)
-        .single();
+        .eq("created_by", user.id)
+        .limit(1);
 
       if (cancelled) return;
 
-      // 0 rows → PGRST116; treat as "no family" → onboarding
-      if (famErr && famErr.code !== "PGRST116") {
+      if (famErr) {
         setLoading(false);
         return;
       }
 
-      if (!family) {
+      if (!famRows?.length) {
         router.push("/onboarding");
         return;
       }

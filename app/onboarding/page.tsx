@@ -170,6 +170,23 @@ export default function OnboardingPage() {
       return;
     }
 
+    // Confirm family is readable (same query shape as home) before leaving onboarding
+    const { data: verifyRows, error: verifyErr } = await supabase
+      .from("families")
+      .select("id")
+      .eq("created_by", user.id)
+      .eq("id", family.id)
+      .limit(1);
+
+    if (verifyErr || !verifyRows?.length) {
+      setLoading(false);
+      setError(
+        verifyErr?.message ??
+          "Daten gespeichert, aber die Familie ist noch nicht sichtbar. Bitte Seite neu laden."
+      );
+      return;
+    }
+
     setLoading(false);
     router.push("/");
     router.refresh();
