@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 const T = {
@@ -208,6 +209,7 @@ function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCom
 }
 
 function FamilyApp() {
+  const router = useRouter();
   const [tab, setTab] = useState("dashboard");
   const [familyId, setFamilyId] = useState<string | null>(null);
   const [members, setMembers] = useState<UIMember[]>([]);
@@ -249,6 +251,8 @@ function FamilyApp() {
   const [memberInviteLoading, setMemberInviteLoading] = useState(false);
   const [memberInviteError, setMemberInviteError] = useState<string | null>(null);
   const [memberInviteCopied, setMemberInviteCopied] = useState(false);
+  const [settingsModal, setSettingsModal] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
 
   const loadFamilyData = useCallback(async () => {
     setLoadError(null);
@@ -259,6 +263,7 @@ function FamilyApp() {
       setLoading(false);
       return;
     }
+    setUserEmail(user.email ?? "");
     const { data: fam, error: famErr } = await supabase
       .from("families")
       .select("id")
@@ -880,6 +885,32 @@ function FamilyApp() {
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             <button className="r" onClick={()=>setCompose(true)} style={{background:T.red,borderRadius:7,padding:"7px 14px",color:"#fff",fontWeight:600,fontSize:12}}>+ Post</button>
+            <button
+              type="button"
+              className="r"
+              onClick={async () => {
+                const {
+                  data: { user },
+                } = await supabase.auth.getUser();
+                if (user?.email) setUserEmail(user.email);
+                setSettingsModal(true);
+              }}
+              aria-label="Einstellungen"
+              style={{
+                width:32,
+                height:32,
+                borderRadius:8,
+                background:T.bg0,
+                border:`1px solid ${T.line2}`,
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"center",
+                fontSize:16,
+                flexShrink:0,
+              }}
+            >
+              ⚙️
+            </button>
             <div style={{position:"relative"}}>
               <Av m={am} s={32}/>
               <div style={{position:"absolute",bottom:0,right:0,width:8,height:8,borderRadius:"50%",background:T.green,border:`2px solid ${T.bg1}`}}/>
@@ -1268,6 +1299,142 @@ function FamilyApp() {
             👋 Mitglied einladen
           </button>
           <div style={{ height: 40 }} />
+        </div>
+      )}
+
+      {/* EINSTELLUNGEN MODAL */}
+      {settingsModal && (
+        <div
+          className="dim"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(44,31,20,0.55)",
+            zIndex: 165,
+            display: "flex",
+            alignItems: "flex-end",
+            maxWidth: 430,
+            margin: "0 auto",
+          }}
+        >
+          <div
+            className="slide"
+            style={{
+              background: T.bg0,
+              borderRadius: "20px 20px 0 0",
+              width: "100%",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              borderTop: `3px solid ${T.red}`,
+              boxShadow: "0 -8px 32px rgba(44,31,20,0.12)",
+            }}
+          >
+            <div style={{ width: 32, height: 3, background: T.line2, borderRadius: 2, margin: "12px auto 0" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px 0" }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: T.txt0 }}>
+                <span style={{ color: T.txt0 }}>Do</span>
+                <span style={{ color: T.amber }}>.</span>
+                <span style={{ color: T.red }}>Fam</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: T.txt1, marginLeft: 8 }}>Einstellungen</span>
+              </div>
+              <button
+                type="button"
+                className="r"
+                onClick={() => setSettingsModal(false)}
+                style={{
+                  background: T.bg1,
+                  borderRadius: "50%",
+                  width: 32,
+                  height: 32,
+                  fontSize: 14,
+                  color: T.txt1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: `1px solid ${T.line}`,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ padding: "18px 18px 28px", display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.txt2, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                  Angemeldet als
+                </div>
+                <div
+                  style={{
+                    background: T.bg1,
+                    border: `1px solid ${T.line}`,
+                    borderRadius: 12,
+                    padding: "12px 14px",
+                    fontSize: 14,
+                    color: T.txt0,
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {userEmail || "—"}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="r"
+                onClick={() => {
+                  setSettingsModal(false);
+                  router.push("/invite");
+                }}
+                style={{
+                  width: "100%",
+                  padding: "13px",
+                  borderRadius: 11,
+                  background: T.bg1,
+                  border: `2px solid ${T.amber}`,
+                  color: T.amber,
+                  fontWeight: 700,
+                  fontSize: 14,
+                }}
+              >
+                Familie einladen
+              </button>
+              <button
+                type="button"
+                className="r"
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  setSettingsModal(false);
+                  router.replace("/login");
+                }}
+                style={{
+                  width: "100%",
+                  padding: "13px",
+                  borderRadius: 11,
+                  background: T.red,
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 14,
+                }}
+              >
+                Abmelden
+              </button>
+              <button
+                type="button"
+                className="r"
+                onClick={() => setSettingsModal(false)}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  borderRadius: 10,
+                  background: T.bg2,
+                  color: T.txt1,
+                  fontWeight: 600,
+                  fontSize: 13,
+                  border: `1px solid ${T.line}`,
+                }}
+              >
+                Schließen
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
