@@ -89,6 +89,15 @@ function formatDbTime(t: string | null | undefined): string {
   return s.length >= 5 ? s.slice(0, 5) : s;
 }
 
+/** Shareable join links from the Familie tab (matches production app URL). */
+const MEMBER_INVITE_APP_BASE = "https://familyfeed-app.vercel.app";
+
+function randomInviteToken(): string {
+  const a = new Uint8Array(32);
+  crypto.getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 const STORY_BG_OPTIONS = [
   "#C8522A","#8B3A20","#3A6DBF","#1E4A99","#3D8C6E","#2A6B50",
   "#C47B0A","#8B560A","#7B4F8E","#4A3060","#C44A6B","#8B2A45",
@@ -235,6 +244,11 @@ function FamilyApp() {
   const [now, setNow] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [memberInviteModal, setMemberInviteModal] = useState(false);
+  const [memberInviteLink, setMemberInviteLink] = useState("");
+  const [memberInviteLoading, setMemberInviteLoading] = useState(false);
+  const [memberInviteError, setMemberInviteError] = useState<string | null>(null);
+  const [memberInviteCopied, setMemberInviteCopied] = useState(false);
 
   const loadFamilyData = useCallback(async () => {
     setLoadError(null);
@@ -716,6 +730,61 @@ function FamilyApp() {
     } else setViewStory(null);
   };
 
+  async function openMemberInviteModal() {
+    setMemberInviteModal(true);
+    setMemberInviteLink("");
+    setMemberInviteError(null);
+    setMemberInviteCopied(false);
+    setMemberInviteLoading(true);
+    if (!familyId) {
+      setMemberInviteLoading(false);
+      setMemberInviteError("Keine Familie gefunden.");
+      return;
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setMemberInviteLoading(false);
+      setMemberInviteError("Bitte melde dich erneut an.");
+      return;
+    }
+    const token = randomInviteToken();
+    const email = `link+${token.slice(0, 32)}@invite.dofam`;
+    const { error: insErr } = await supabase.from("invitations").insert({
+      family_id: familyId,
+      email,
+      token,
+      invited_by: user.id,
+    });
+    if (insErr) {
+      setMemberInviteLoading(false);
+      setMemberInviteError(insErr.message);
+      return;
+    }
+    setMemberInviteLink(`${MEMBER_INVITE_APP_BASE}/join?token=${encodeURIComponent(token)}`);
+    setMemberInviteLoading(false);
+  }
+
+  async function copyMemberInviteLink() {
+    if (!memberInviteLink) return;
+    try {
+      await navigator.clipboard.writeText(memberInviteLink);
+      setMemberInviteCopied(true);
+      setTimeout(() => setMemberInviteCopied(false), 2000);
+    } catch {
+      setMemberInviteError("Link konnte nicht kopiert werden.");
+    }
+  }
+
+  function closeMemberInviteModal() {
+    setMemberInviteModal(false);
+    setMemberInviteLink("");
+    setMemberInviteError(null);
+    setMemberInviteCopied(false);
+    setMemberInviteLoading(false);
+  }
+
   if (loading) {
     return (
       <div
@@ -1180,7 +1249,144 @@ function FamilyApp() {
               </div>
             );
           })}
-          <div style={{height:40}}/>
+          <button
+            type="button"
+            className="r"
+            onClick={openMemberInviteModal}
+            style={{
+              width: "100%",
+              padding: "14px 16px",
+              borderRadius: 12,
+              background: T.amberT,
+              border: `2px solid ${T.amberB}`,
+              color: T.amber,
+              fontWeight: 700,
+              fontSize: 14,
+              marginTop: 4,
+            }}
+          >
+            👋 Mitglied einladen
+          </button>
+          <div style={{ height: 40 }} />
+        </div>
+      )}
+
+      {/* MITGLIED EINLADEN MODAL */}
+      {memberInviteModal && (
+        <div
+          className="dim"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(44,31,20,0.6)",
+            zIndex: 160,
+            display: "flex",
+            alignItems: "flex-end",
+            maxWidth: 430,
+            margin: "0 auto",
+          }}
+        >
+          <div
+            className="slide"
+            style={{
+              background: T.bg1,
+              borderRadius: "20px 20px 0 0",
+              width: "100%",
+              maxHeight: "88vh",
+              overflowY: "auto",
+              borderTop: `2px solid ${T.red}`,
+            }}
+          >
+            <div style={{ width: 32, height: 3, background: T.line2, borderRadius: 2, margin: "12px auto 0" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px 0" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.txt0 }}>Mitglied einladen</div>
+              <button
+                type="button"
+                className="r"
+                onClick={closeMemberInviteModal}
+                style={{
+                  background: T.bg3,
+                  borderRadius: "50%",
+                  width: 30,
+                  height: 30,
+                  fontSize: 13,
+                  color: T.txt1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ padding: "16px 16px 28px", display: "flex", flexDirection: "column", gap: 14 }}>
+              {memberInviteLoading ? (
+                <p style={{ fontSize: 14, color: T.txt1, textAlign: "center", padding: "12px 0" }}>Einladung wird erstellt…</p>
+              ) : null}
+              {!memberInviteLoading && memberInviteLink ? (
+                <>
+                  <p style={{ fontSize: 13, color: T.txt1, lineHeight: 1.5, textAlign: "center" }}>
+                    Teile diesen Link mit deinem Familienmitglied
+                  </p>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: T.txt2,
+                      fontFamily: "monospace",
+                      wordBreak: "break-all",
+                      background: T.bg2,
+                      border: `1px solid ${T.line}`,
+                      borderRadius: 10,
+                      padding: "11px 12px",
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {memberInviteLink}
+                  </div>
+                  <button
+                    type="button"
+                    className="r"
+                    onClick={copyMemberInviteLink}
+                    style={{
+                      width: "100%",
+                      padding: "14px",
+                      borderRadius: 11,
+                      background: T.red,
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 15,
+                    }}
+                  >
+                    {memberInviteCopied ? "Kopiert! ✓" : "Link kopieren 📋"}
+                  </button>
+                </>
+              ) : null}
+              {memberInviteError ? (
+                <p style={{ fontSize: 13, color: T.red, textAlign: "center" }} role="alert">
+                  {memberInviteError}
+                </p>
+              ) : null}
+              {!memberInviteLoading && !memberInviteLink ? (
+                <button
+                  type="button"
+                  className="r"
+                  onClick={closeMemberInviteModal}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    borderRadius: 10,
+                    background: T.bg3,
+                    color: T.txt1,
+                    fontWeight: 600,
+                    fontSize: 14,
+                    border: `1px solid ${T.line}`,
+                  }}
+                >
+                  Schließen
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       )}
 
