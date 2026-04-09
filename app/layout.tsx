@@ -9,8 +9,8 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "FamilyFeed",
-  description: "Family feed, calendar, and shop",
+  title: "DoFam",
+  description: "DoFam - Die App für deine Familie",
 };
 
 export default function RootLayout({

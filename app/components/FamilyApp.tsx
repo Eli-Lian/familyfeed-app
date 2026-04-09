@@ -340,7 +340,7 @@ function FamilyApp() {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 18px 10px"}}>
           <div>
             <div style={{fontSize:17,fontWeight:700,letterSpacing:-0.4,display:"flex",gap:0}}>
-              <span style={{color:T.txt0}}>Family</span><span style={{color:T.amber}}>.</span><span style={{color:T.red}}>Feed</span>
+              <span style={{color:T.txt0}}>Do</span><span style={{color:T.amber}}>.</span><span style={{color:T.red}}>Fam</span>
             </div>
             <div style={{fontSize:10,color:T.txt2,marginTop:1,fontFamily:"monospace",letterSpacing:0.3}}>{dd}</div>
           </div>
