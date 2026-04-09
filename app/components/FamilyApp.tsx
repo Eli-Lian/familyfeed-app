@@ -884,7 +884,29 @@ function FamilyApp() {
             <div style={{fontSize:10,color:T.txt2,marginTop:1,fontFamily:"monospace",letterSpacing:0.3}}>{dd}</div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <button className="r" onClick={()=>setCompose(true)} style={{background:T.red,borderRadius:7,padding:"7px 14px",color:"#fff",fontWeight:600,fontSize:12}}>+ Post</button>
+            <button
+              type="button"
+              className="r"
+              onClick={()=>setCompose(true)}
+              aria-label="Neuer Post"
+              style={{
+                width:36,
+                height:36,
+                borderRadius:"50%",
+                background:"#C8522A",
+                color:"#fff",
+                fontSize:22,
+                fontWeight:500,
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"center",
+                flexShrink:0,
+                lineHeight:1,
+                padding:0,
+              }}
+            >
+              +
+            </button>
             <button
               type="button"
               className="r"
