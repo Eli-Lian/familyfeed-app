@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
 
 const T = {
   bg0:"#F5EFE6", bg1:"#FFFFFF", bg2:"#F0E9DF", bg3:"#EAE2D6", bg4:"#E2D8CA",
@@ -9,14 +10,18 @@ const T = {
   blue:"#3A6DBF",  blueT:"rgba(58,109,191,0.10)",  blueB:"rgba(58,109,191,0.25)",
   green:"#3D8C6E", greenT:"rgba(61,140,110,0.10)", greenB:"rgba(61,140,110,0.25)",
   amber:"#C47B0A", amberT:"rgba(196,123,10,0.10)", amberB:"rgba(196,123,10,0.25)",
-} as const;const INIT_MEMBERS = [
-  { id:1, name:"Mama", avatar:"👩", photo:null as string|null, color:T.red,   role:"Elternteil" },
-  { id:2, name:"Papa", avatar:"👨", photo:null as string|null, color:T.blue,  role:"Elternteil" },
-  { id:3, name:"Lena", avatar:"👧", photo:null as string|null, color:T.green, role:"Kind" },
-  { id:4, name:"Max",  avatar:"👦", photo:null as string|null, color:T.amber, role:"Kind" },
-];
+} as const;
 
-const TODAY_ISO = new Date().toISOString().slice(0,10);
+type UIMember = {
+  id: string;
+  name: string;
+  avatar: string;
+  photo: string | null;
+  color: string;
+  role: string;
+};
+
+const TODAY_ISO = new Date().toISOString().slice(0, 10);
 const THIS_YEAR = new Date().getFullYear();
 
 function parseEventDate(str: string): string|null {
@@ -30,48 +35,59 @@ function parseEventDate(str: string): string|null {
   return `${THIS_YEAR}-${String(mon).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
 }
 
-const MEMBER_EVENTS: Record<number, any[]> = {
-  1: [
-    { id:"e1", title:"Zahnarzt",       date:"Mo, 07. Apr", time:"09:00", icon:"🦷", urgent:true  },
-    { id:"e2", title:"Team Meeting",   date:"Di, 08. Apr", time:"10:30", icon:"💼", urgent:false },
-    { id:"e3", title:"Sport",          date:"Do, 10. Apr", time:"18:00", icon:"🏃", urgent:false },
-  ],
-  2: [
-    { id:"e4", title:"Arzttermin Max", date:"Mo, 07. Apr", time:"10:30", icon:"🏥", urgent:true  },
-    { id:"e5", title:"Elternabend",    date:"Mi, 09. Apr", time:"19:00", icon:"🏫", urgent:false },
-    { id:"e6", title:"Autowerkstatt",  date:"Fr, 11. Apr", time:"08:00", icon:"🔧", urgent:false },
-  ],
-  3: [
-    { id:"e7", title:"Klavierunterricht", date:"Heute",       time:"14:00", icon:"🎹", urgent:true  },
-    { id:"e8", title:"Schulfest",         date:"Fr, 12. Apr", time:"14:00", icon:"🎉", urgent:false },
-    { id:"e9", title:"Freundin Mia",      date:"Sa, 13. Apr", time:"15:00", icon:"👯", urgent:false },
-  ],
-  4: [
-    { id:"ea", title:"Fußballtraining", date:"Heute",        time:"16:00", icon:"⚽", urgent:true  },
-    { id:"eb", title:"Arzttermin",      date:"Mo, 07. Apr",  time:"10:30", icon:"🏥", urgent:false },
-    { id:"ec", title:"Schulausflug",    date:"Mi, 09. Apr",  time:"07:30", icon:"🚌", urgent:false },
-  ],
-};
+function localYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-const INIT_POSTS = [
-  { id:1, memberId:1, type:"status",   pinned:true,  date:"heute",   time:"08:15", reads:[2,3], comments:[{memberId:3,text:"Yeeees!! 🎉",time:"08:22"}], content:"Heute Abend gibt es selbstgemachte Pizza! 🍕 Bitte alle bis 18:30 zuhause." },
-  { id:2, memberId:3, type:"event",    pinned:false, date:"heute",   time:"07:45", reads:[1,2,4], comments:[], eventDate:"Fr, 12. Apr", eventTime:"14:00", content:"Schulfest nächsten Freitag! Ich brauche Kuchen 🎂 Wer backt mit mir?" },
-  { id:3, memberId:2, type:"reminder", pinned:false, date:"gestern", time:"20:00", reads:[1], comments:[{memberId:1,text:"Danke! Ist notiert ✓",time:"20:10"}], eventDate:"Mo, 07. Apr", eventTime:"10:30", content:"Arzttermin für Max nicht vergessen! 🏥" },
-  { id:4, memberId:4, type:"status",   pinned:false, date:"heute",   time:"07:30", reads:[1,2], comments:[], content:"Training heute um 16 Uhr, komme später ⚽" },
-];
+function postHeaderFromCreated(createdAt: string): { date: string; time: string } {
+  const d = new Date(createdAt);
+  const ymd = localYmd(d);
+  const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const now = new Date();
+  const today = localYmd(now);
+  const yester = new Date(now);
+  yester.setDate(yester.getDate() - 1);
+  const ymdY = localYmd(yester);
+  let dateLabel: string;
+  if (ymd === today) dateLabel = "heute";
+  else if (ymd === ymdY) dateLabel = "gestern";
+  else dateLabel = d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" });
+  return { date: dateLabel, time };
+}
 
-const INIT_STORIES: Record<number, any[]> = {
-  1: [
-    { id:"s1", memberId:1, type:"text", text:"Guten Morgen Familie! ☀️", bg:"#C8522A", time:"07:30", seen:[] },
-    { id:"s2", memberId:1, type:"text", text:"Pizza heute Abend! 🍕🎉",  bg:"#8B3A20", time:"08:00", seen:[2] },
-  ],
-  2: [{ id:"s3", memberId:2, type:"text", text:"Unterwegs zum Arzt 🏥", bg:"#3A6DBF", time:"09:15", seen:[1,3] }],
-  3: [
-    { id:"s4", memberId:3, type:"text", text:"Klavier heute war super 🎹", bg:"#3D8C6E", time:"15:30", seen:[] },
-    { id:"s5", memberId:3, type:"text", text:"Wer kommt zum Schulfest? 🎉", bg:"#2A6B50", time:"16:00", seen:[1] },
-  ],
-  4: [],
-};
+function mapDbMember(row: {
+  id: string;
+  name: string;
+  avatar: string | null;
+  color: string | null;
+  role: string | null;
+  photo_url: string | null;
+}): UIMember {
+  return {
+    id: row.id,
+    name: row.name,
+    avatar: row.avatar || "👤",
+    photo: row.photo_url,
+    color: row.color || T.red,
+    role: row.role || "",
+  };
+}
+
+function formatEventDateLabel(iso: string | null): string {
+  if (!iso) return "Demnächst";
+  if (iso === TODAY_ISO) return "Heute";
+  const d = new Date(iso + "T12:00:00");
+  return d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function formatDbTime(t: string | null | undefined): string {
+  if (!t) return "–";
+  const s = String(t);
+  return s.length >= 5 ? s.slice(0, 5) : s;
+}
 
 const STORY_BG_OPTIONS = [
   "#C8522A","#8B3A20","#3A6DBF","#1E4A99","#3D8C6E","#2A6B50",
@@ -139,7 +155,7 @@ function PhotoPanel({ m, onUpload, onRemove, onClose }: { m:any, onUpload:(f:Fil
 }
 
 function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCommentChange, onComment }:
-  { post:any, gm:(id:number)=>any, active:number, expanded:boolean, onExpand:()=>void, onRead:()=>void, comment:string, onCommentChange:(s:string)=>void, onComment:()=>void }) {
+  { post:any, gm:(id:string)=>UIMember|undefined, active:string, expanded:boolean, onExpand:()=>void, onRead:()=>void, comment:string, onCommentChange:(s:string)=>void, onComment:()=>void }) {
   const mem  = gm(post.memberId);
   const read = post.reads.includes(active);
   const tc   = TYPE[post.type];
@@ -158,7 +174,7 @@ function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCom
         <div style={{fontSize:14,lineHeight:1.58,color:T.txt0}}>{post.content}</div>
         {post.eventDate&&<div style={{marginTop:9,background:T.amberT,border:`1px solid ${T.amberB}`,borderRadius:8,padding:"8px 11px",display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:16,flexShrink:0}}>◆</span><div style={{fontSize:12,fontWeight:600,color:T.amber}}>{post.eventDate} · {post.eventTime} Uhr</div></div>}
       </div>
-      {post.reads.length>0&&<div style={{padding:"0 13px 9px",display:"flex",alignItems:"center",gap:5}}><div style={{display:"flex"}}>{post.reads.slice(0,4).map((id:number)=><div key={id} style={{width:18,height:18,borderRadius:"50%",overflow:"hidden",marginLeft:-3,border:`1.5px solid ${T.bg1}`}}><Av m={gm(id)} s={18}/></div>)}</div><span style={{fontSize:10,color:T.txt2,fontFamily:"monospace"}}>{post.reads.length} gelesen</span></div>}
+      {post.reads.length>0&&<div style={{padding:"0 13px 9px",display:"flex",alignItems:"center",gap:5}}><div style={{display:"flex"}}>{post.reads.slice(0,4).map((rid:string)=><div key={rid} style={{width:18,height:18,borderRadius:"50%",overflow:"hidden",marginLeft:-3,border:`1.5px solid ${T.bg1}`}}><Av m={gm(rid)} s={18}/></div>)}</div><span style={{fontSize:10,color:T.txt2,fontFamily:"monospace"}}>{post.reads.length} gelesen</span></div>}
       <div style={{display:"flex",gap:5,padding:"7px 9px",borderTop:`1px solid ${T.line}`}}>
         <button onClick={onRead} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"7px 8px",borderRadius:7,background:read?T.greenT:T.bg3,border:`1px solid ${read?T.greenB:T.line}`,color:read?T.green:T.txt1,fontWeight:600,fontSize:12,cursor:"pointer"}}>
           <span style={{fontSize:13}}>{read?"✓":"○"}</span>{read?"Gelesen":"Als gelesen markieren"}
@@ -183,136 +199,585 @@ function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCom
 }
 
 function FamilyApp() {
-  const [tab, setTab]             = useState("dashboard");
-  const [members, setMembers]     = useState(INIT_MEMBERS);
-  const [memberEvents, setMemberEvents] = useState<Record<number,any[]>>(MEMBER_EVENTS);
-  const [posts, setPosts]         = useState<any[]>(INIT_POSTS);
-  const [stories, setStories]     = useState<Record<number,any[]>>(INIT_STORIES);
-  const [viewStory, setViewStory] = useState<{memberId:number,index:number}|null>(null);
-  const [addStory, setAddStory]   = useState(false);
-  const [newStory, setNewStory]   = useState({ type:"text", text:"", bg:STORY_BG_OPTIONS[0], photo:null as string|null });
-  const [compose, setCompose]     = useState(false);
-  const [newPost, setNewPost]     = useState({ content:"", type:"status", memberId:1 });
-  const [expanded, setExpanded]   = useState<number|null>(null);
-  const [comment, setComment]     = useState("");
-  const [active, setActive]       = useState(1);
-  const [editPhoto, setEditPhoto] = useState<number|null>(null);
+  const [tab, setTab] = useState("dashboard");
+  const [familyId, setFamilyId] = useState<string | null>(null);
+  const [members, setMembers] = useState<UIMember[]>([]);
+  const [memberEvents, setMemberEvents] = useState<Record<string, any[]>>({});
+  const [posts, setPosts] = useState<any[]>([]);
+  const [stories, setStories] = useState<Record<string, any[]>>({});
+  const [viewStory, setViewStory] = useState<{ memberId: string; index: number } | null>(null);
+  const [addStory, setAddStory] = useState(false);
+  const [newStory, setNewStory] = useState({
+    type: "text",
+    text: "",
+    bg: STORY_BG_OPTIONS[0],
+    photo: null as string | null,
+  });
+  const [compose, setCompose] = useState(false);
+  const [newPost, setNewPost] = useState({ content: "", type: "status", memberId: "" });
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [comment, setComment] = useState("");
+  const [currentMember, setCurrentMember] = useState("");
+  const [editPhoto, setEditPhoto] = useState<string | null>(null);
   const [addEventModal, setAddEventModal] = useState(false);
-  const [newEvent, setNewEvent]   = useState({ title:"", date:"", time:"", icon:"📅", forMemberId:1 });
-  const [shopItems, setShopItems] = useState<any[]>([
-    { id:"sh1", text:"Milch", qty:"2L",  done:false, memberId:1, cat:"🥛" },
-    { id:"sh2", text:"Brot",  qty:"1",   done:false, memberId:2, cat:"🍞" },
-    { id:"sh3", text:"Äpfel", qty:"1kg", done:true,  memberId:3, cat:"🍎" },
-    { id:"sh4", text:"Pasta", qty:"500g",done:false, memberId:4, cat:"🍝" },
-    { id:"sh5", text:"Käse",  qty:"",    done:false, memberId:1, cat:"🧀" },
-  ]);
-  const [newItem, setNewItem]     = useState({ text:"", qty:"", cat:"🛒" });
+  const [newEvent, setNewEvent] = useState({
+    title: "",
+    date: "",
+    time: "",
+    icon: "📅",
+    forMemberId: "",
+  });
+  const [shopItems, setShopItems] = useState<any[]>([]);
+  const [newItem, setNewItem] = useState({ text: "", qty: "", cat: "🛒" });
   const [shopFilter, setShopFilter] = useState("all");
-  const [calMonth, setCalMonth]   = useState(new Date());
+  const [calMonth, setCalMonth] = useState(new Date());
   const [calSelected, setCalSelected] = useState(TODAY_ISO);
-  const [now, setNow]             = useState(new Date());
+  const [now, setNow] = useState(new Date());
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => { const t = setInterval(()=>setNow(new Date()),1000); return ()=>clearInterval(t); }, []);
+  const loadFamilyData = useCallback(async () => {
+    setLoadError(null);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    const { data: fam, error: famErr } = await supabase
+      .from("families")
+      .select("id")
+      .eq("created_by", user.id)
+      .maybeSingle();
+    if (famErr) {
+      setLoadError(famErr.message);
+      setLoading(false);
+      return;
+    }
+    if (!fam?.id) {
+      setLoadError("Keine Familie gefunden.");
+      setLoading(false);
+      return;
+    }
+    setFamilyId(fam.id);
+    const { data: memRows, error: memErr } = await supabase
+      .from("members")
+      .select("id, name, avatar, color, role, photo_url")
+      .eq("family_id", fam.id)
+      .order("created_at", { ascending: true });
+    if (memErr) {
+      setLoadError(memErr.message);
+      setLoading(false);
+      return;
+    }
+    const memList = (memRows || []).map(mapDbMember);
+    setMembers(memList);
+    const firstId = memList[0]?.id ?? "";
+    setCurrentMember((prev) => (prev && memList.some((m) => m.id === prev) ? prev : firstId));
+    setNewPost((p) => ({ ...p, memberId: p.memberId && memList.some((m) => m.id === p.memberId) ? p.memberId : firstId }));
+    setNewEvent((e) => ({ ...e, forMemberId: e.forMemberId && memList.some((m) => m.id === e.forMemberId) ? e.forMemberId : firstId }));
+    const memberIds = memList.map((m) => m.id);
+    if (memberIds.length === 0) {
+      setPosts([]);
+      setMemberEvents({});
+      setStories({});
+      setShopItems([]);
+      setLoading(false);
+      return;
+    }
+    const { data: postRows, error: postErr } = await supabase
+      .from("posts")
+      .select("id, member_id, type, content, pinned, date, time, created_at, event_date, event_time")
+      .in("member_id", memberIds)
+      .order("created_at", { ascending: false });
+    if (postErr) {
+      setLoadError(postErr.message);
+      setLoading(false);
+      return;
+    }
+    const postList = postRows || [];
+    const postIds = postList.map((p) => p.id);
+    let commentRows: { id: string; post_id: string; member_id: string; text: string; created_at: string }[] = [];
+    let readRows: { post_id: string; member_id: string }[] = [];
+    if (postIds.length > 0) {
+      const [cRes, rRes] = await Promise.all([
+        supabase.from("comments").select("id, post_id, member_id, text, created_at").in("post_id", postIds),
+        supabase.from("post_reads").select("post_id, member_id").in("post_id", postIds),
+      ]);
+      if (cRes.error) {
+        setLoadError(cRes.error.message);
+        setLoading(false);
+        return;
+      }
+      if (rRes.error) {
+        setLoadError(rRes.error.message);
+        setLoading(false);
+        return;
+      }
+      commentRows = cRes.data || [];
+      readRows = rRes.data || [];
+    }
+    const commentsByPost = new Map<string, typeof commentRows>();
+    for (const c of commentRows) {
+      const arr = commentsByPost.get(c.post_id) || [];
+      arr.push(c);
+      commentsByPost.set(c.post_id, arr);
+    }
+    const readsByPost = new Map<string, string[]>();
+    for (const r of readRows) {
+      const arr = readsByPost.get(r.post_id) || [];
+      arr.push(r.member_id);
+      readsByPost.set(r.post_id, arr);
+    }
+    const uiPosts = postList.map((row) => {
+      const header = postHeaderFromCreated(row.created_at);
+      const evDate =
+        row.event_date &&
+        new Date(String(row.event_date) + "T12:00:00").toLocaleDateString("de-DE", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        });
+      const evTime = row.event_time ? formatDbTime(row.event_time) : undefined;
+      const cs = (commentsByPost.get(row.id) || []).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      return {
+        id: row.id,
+        memberId: row.member_id,
+        type: row.type,
+        pinned: row.pinned,
+        date: header.date,
+        time: header.time,
+        reads: readsByPost.get(row.id) || [],
+        comments: cs.map((c) => ({
+          memberId: c.member_id,
+          text: c.text,
+          time: new Date(c.created_at).toLocaleTimeString("de-DE", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }),
+        })),
+        content: row.content || "",
+        eventDate: row.type !== "status" && evDate ? evDate : undefined,
+        eventTime: row.type !== "status" && evTime ? evTime : undefined,
+      };
+    });
+    setPosts(uiPosts);
+    const { data: evRows, error: evErr } = await supabase
+      .from("member_events")
+      .select("*")
+      .in("member_id", memberIds)
+      .order("created_at", { ascending: false });
+    if (evErr) {
+      setLoadError(evErr.message);
+      setLoading(false);
+      return;
+    }
+    const evMap: Record<string, any[]> = {};
+    for (const m of memberIds) evMap[m] = [];
+    for (const row of evRows || []) {
+      const iso = row.date ? String(row.date).slice(0, 10) : null;
+      const ui = {
+        id: row.id,
+        title: row.title,
+        date: formatEventDateLabel(iso),
+        time: formatDbTime(row.time),
+        icon: row.icon || "📅",
+        urgent: !!row.urgent,
+        addedBy: row.added_by || undefined,
+        isoDate: iso,
+      };
+      if (!evMap[row.member_id]) evMap[row.member_id] = [];
+      evMap[row.member_id].push(ui);
+    }
+    setMemberEvents(evMap);
+    const { data: stRows, error: stErr } = await supabase
+      .from("stories")
+      .select("*")
+      .in("member_id", memberIds)
+      .order("created_at", { ascending: true });
+    if (stErr) {
+      setLoadError(stErr.message);
+      setLoading(false);
+      return;
+    }
+    const stMap: Record<string, any[]> = {};
+    for (const m of memberIds) stMap[m] = [];
+    for (const row of stRows || []) {
+      const seenRaw = row.seen_by;
+      const seen = Array.isArray(seenRaw) ? seenRaw.map(String) : [];
+      const t = new Date(row.created_at).toLocaleTimeString("de-DE", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      const ui = {
+        id: row.id,
+        memberId: row.member_id,
+        type: row.type,
+        text: row.text || "",
+        bg: row.bg || STORY_BG_OPTIONS[0],
+        photo: row.photo_url || null,
+        time: t,
+        seen,
+      };
+      if (!stMap[row.member_id]) stMap[row.member_id] = [];
+      stMap[row.member_id].push(ui);
+    }
+    setStories(stMap);
+    const shopQ = supabase.from("shop_items").select("*").order("created_at", { ascending: false });
+    const { data: shopRows, error: shopErr } = await shopQ;
+    if (shopErr) {
+      setLoadError(shopErr.message);
+      setLoading(false);
+      return;
+    }
+    const filteredShop = (shopRows || []).filter(
+      (row: { family_id?: string | null }) => row.family_id === fam.id || row.family_id == null
+    );
+    setShopItems(
+      filteredShop.map((row: any) => ({
+        id: row.id,
+        text: row.text,
+        qty: row.qty || "",
+        done: row.done,
+        memberId: row.member_id,
+        cat: row.cat || "🛒",
+      }))
+    );
+    setLoading(false);
+  }, []);
 
-  const hh = now.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
-  const ss = String(now.getSeconds()).padStart(2,"0");
-  const dd = now.toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"});
-  const ch = now.getHours()+now.getMinutes()/60;
-  const gm = (id:number) => members.find(m=>m.id===id);
-  const am = gm(active);
+  useEffect(() => {
+    loadFamilyData();
+  }, [loadFamilyData]);
 
-  const toggleRead = (id:number) => setPosts(p=>p.map(x=>{
-    if(x.id!==id) return x;
-    const r=x.reads.includes(active);
-    return {...x,reads:r?x.reads.filter((v:number)=>v!==active):[...x.reads,active]};
-  }));
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
-  const addComment = (id:number) => {
-    if(!comment.trim()) return;
-    setPosts(p=>p.map(x=>x.id===id?{...x,comments:[...x.comments,{memberId:active,text:comment,time:hh}]}:x));
+  const hh = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  const dd = now.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+  const gm = (id: string) => members.find((m) => m.id === id);
+  const am = gm(currentMember);
+
+  const toggleRead = async (postId: string) => {
+    if (!currentMember) return;
+    const has = posts.find((p) => p.id === postId)?.reads?.includes(currentMember);
+    if (has) {
+      const { error } = await supabase
+        .from("post_reads")
+        .delete()
+        .eq("post_id", postId)
+        .eq("member_id", currentMember);
+      if (error) return;
+      setPosts((p) =>
+        p.map((x) =>
+          x.id === postId
+            ? { ...x, reads: x.reads.filter((v: string) => v !== currentMember) }
+            : x
+        )
+      );
+    } else {
+      const { error } = await supabase.from("post_reads").insert({ post_id: postId, member_id: currentMember });
+      if (error) return;
+      setPosts((p) =>
+        p.map((x) =>
+          x.id === postId ? { ...x, reads: [...x.reads, currentMember] } : x
+        )
+      );
+    }
+  };
+
+  const addComment = async (postId: string) => {
+    if (!comment.trim() || !currentMember) return;
+    const { data, error } = await supabase
+      .from("comments")
+      .insert({ post_id: postId, member_id: currentMember, text: comment.trim() })
+      .select("id, member_id, text, created_at")
+      .single();
+    if (error || !data) return;
+    const time = new Date(data.created_at).toLocaleTimeString("de-DE", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    setPosts((p) =>
+      p.map((x) =>
+        x.id === postId
+          ? {
+              ...x,
+              comments: [...x.comments, { memberId: data.member_id, text: data.text, time }],
+            }
+          : x
+      )
+    );
     setComment("");
   };
 
-  const submitPost = () => {
-    if(!newPost.content.trim()) return;
-    setPosts(p=>[{id:Date.now(),memberId:newPost.memberId,type:newPost.type,content:newPost.content,time:hh,date:"heute",reads:[],comments:[],pinned:false},...p]);
-    setNewPost({content:"",type:"status",memberId:active});
+  const submitPost = async () => {
+    if (!newPost.content.trim() || !newPost.memberId) return;
+    const { data, error } = await supabase
+      .from("posts")
+      .insert({
+        member_id: newPost.memberId,
+        type: newPost.type,
+        content: newPost.content.trim(),
+        pinned: false,
+      })
+      .select("id, member_id, type, content, pinned, date, time, created_at, event_date, event_time")
+      .single();
+    if (error || !data) return;
+    const header = postHeaderFromCreated(data.created_at);
+    setPosts((p) => [
+      {
+        id: data.id,
+        memberId: data.member_id,
+        type: data.type,
+        pinned: data.pinned,
+        date: header.date,
+        time: header.time,
+        reads: [],
+        comments: [],
+        content: data.content || "",
+        eventDate: undefined,
+        eventTime: undefined,
+      },
+      ...p,
+    ]);
+    setNewPost({ content: "", type: "status", memberId: currentMember });
     setCompose(false);
   };
 
-  const uploadPhoto = (memberId:number, file:File) => {
-    const r=new FileReader();
-    r.onload=e=>setMembers(p=>p.map(m=>m.id===memberId?{...m,photo:e.target?.result as string}:m));
+  const uploadPhoto = async (memberId: string, file: File) => {
+    const r = new FileReader();
+    r.onload = async (e) => {
+      const dataUrl = e.target?.result as string;
+      const { error } = await supabase.from("members").update({ photo_url: dataUrl }).eq("id", memberId);
+      if (error) return;
+      setMembers((p) => p.map((m) => (m.id === memberId ? { ...m, photo: dataUrl } : m)));
+      setEditPhoto(null);
+    };
     r.readAsDataURL(file);
-    setEditPhoto(null);
   };
 
-  const submitEvent = (memberId?:number) => {
+  const submitEvent = async (memberId?: string) => {
     const targetId = memberId || newEvent.forMemberId;
-    if(!newEvent.title.trim()) return;
-    const ev = { id:"e"+Date.now(), title:newEvent.title, date:newEvent.date||"Demnächst", time:newEvent.time||"–", icon:newEvent.icon||"📅", urgent:false, addedBy:active };
-    setMemberEvents(p=>({...p,[targetId]:[ev,...(p[targetId]||[])]}));
-    setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:active});
+    if (!newEvent.title.trim() || !targetId || !currentMember) return;
+    const iso = parseEventDate(newEvent.date);
+    const timeVal = newEvent.time?.trim() || null;
+    const { data, error } = await supabase
+      .from("member_events")
+      .insert({
+        member_id: targetId,
+        title: newEvent.title.trim(),
+        date: iso,
+        time: timeVal,
+        icon: newEvent.icon || "📅",
+        urgent: false,
+        added_by: currentMember,
+      })
+      .select("*")
+      .single();
+    if (error || !data) return;
+    const row = data;
+    const rowIso = row.date ? String(row.date).slice(0, 10) : null;
+    const ui = {
+      id: row.id,
+      title: row.title,
+      date: formatEventDateLabel(rowIso),
+      time: formatDbTime(row.time),
+      icon: row.icon || "📅",
+      urgent: !!row.urgent,
+      addedBy: row.added_by || undefined,
+      isoDate: rowIso,
+    };
+    setMemberEvents((p) => ({
+      ...p,
+      [targetId]: [ui, ...(p[targetId] || [])],
+    }));
+    setNewEvent({ title: "", date: "", time: "", icon: "📅", forMemberId: currentMember });
     setAddEventModal(false);
   };
 
-  const removeEvent = (memberId:number, eventId:string) => {
-    setMemberEvents(p=>({...p,[memberId]:(p[memberId]||[]).filter((e:any)=>e.id!==eventId)}));
+  const removeEvent = async (memberId: string, eventId: string) => {
+    const { error } = await supabase.from("member_events").delete().eq("id", eventId);
+    if (error) return;
+    setMemberEvents((p) => ({
+      ...p,
+      [memberId]: (p[memberId] || []).filter((e: any) => e.id !== eventId),
+    }));
   };
 
-  const allStoriesOf = (memberId:number) => stories[memberId] || [];
-  const hasUnseen    = (memberId:number) => allStoriesOf(memberId).some((s:any)=>!s.seen.includes(active));
+  const allStoriesOf = (memberId: string) => stories[memberId] || [];
+  const hasUnseen = (memberId: string) =>
+    allStoriesOf(memberId).some((s: any) => !s.seen.includes(currentMember));
 
-  const markSeen = (memberId:number, storyId:string) => {
-    setStories(p=>({...p,[memberId]:(p[memberId]||[]).map((s:any)=>s.id===storyId&&!s.seen.includes(active)?{...s,seen:[...s.seen,active]}:s)}));
+  const markSeen = async (memberId: string, storyId: string) => {
+    const list = allStoriesOf(memberId);
+    const s = list.find((x: any) => x.id === storyId);
+    if (!s || s.seen.includes(currentMember)) return;
+    const nextSeen = [...s.seen, currentMember];
+    const { error } = await supabase.from("stories").update({ seen_by: nextSeen }).eq("id", storyId);
+    if (error) return;
+    setStories((p) => ({
+      ...p,
+      [memberId]: (p[memberId] || []).map((st: any) =>
+        st.id === storyId ? { ...st, seen: nextSeen } : st
+      ),
+    }));
   };
 
-  const submitStory = () => {
-    if(newStory.type==="text"&&!newStory.text.trim()) return;
-    if(newStory.type==="photo"&&!newStory.photo) return;
-    const s = { id:"s"+Date.now(), memberId:active, type:newStory.type, text:newStory.text, bg:newStory.bg, photo:newStory.photo, time:hh, seen:[] };
-    setStories(p=>({...p,[active]:[...(p[active]||[]),s]}));
-    setNewStory({type:"text",text:"",bg:STORY_BG_OPTIONS[0],photo:null});
+  const submitStory = async () => {
+    if (newStory.type === "text" && !newStory.text.trim()) return;
+    if (newStory.type === "photo" && !newStory.photo) return;
+    if (!currentMember) return;
+    const { data, error } = await supabase
+      .from("stories")
+      .insert({
+        member_id: currentMember,
+        type: newStory.type,
+        text: newStory.type === "text" ? newStory.text.trim() : null,
+        bg: newStory.bg,
+        photo_url: newStory.type === "photo" ? newStory.photo : null,
+        seen_by: [],
+      })
+      .select("*")
+      .single();
+    if (error || !data) return;
+    const t = new Date(data.created_at).toLocaleTimeString("de-DE", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    const ui = {
+      id: data.id,
+      memberId: data.member_id,
+      type: data.type,
+      text: data.text || "",
+      bg: data.bg || STORY_BG_OPTIONS[0],
+      photo: data.photo_url || null,
+      time: t,
+      seen: [] as string[],
+    };
+    setStories((p) => ({ ...p, [currentMember]: [...(p[currentMember] || []), ui] }));
+    setNewStory({ type: "text", text: "", bg: STORY_BG_OPTIONS[0], photo: null });
     setAddStory(false);
   };
 
-  const deleteStory = (memberId:number, storyId:string) => {
-    setStories(p=>({...p,[memberId]:(p[memberId]||[]).filter((s:any)=>s.id!==storyId)}));
+  const deleteStory = async (memberId: string, storyId: string) => {
+    const { error } = await supabase.from("stories").delete().eq("id", storyId);
+    if (error) return;
+    setStories((p) => ({
+      ...p,
+      [memberId]: (p[memberId] || []).filter((s: any) => s.id !== storyId),
+    }));
   };
 
-  const openStory = (memberId:number) => {
+  const openStory = (memberId: string) => {
     const list = allStoriesOf(memberId);
-    if(!list.length) return;
-    const firstUnseen = list.findIndex((s:any)=>!s.seen.includes(active));
-    const idx = firstUnseen>=0?firstUnseen:0;
-    setViewStory({memberId,index:idx});
-    markSeen(memberId,list[idx].id);
+    if (!list.length) return;
+    const firstUnseen = list.findIndex((s: any) => !s.seen.includes(currentMember));
+    const idx = firstUnseen >= 0 ? firstUnseen : 0;
+    setViewStory({ memberId, index: idx });
+    markSeen(memberId, list[idx].id);
   };
 
   const nextStory = () => {
-    if(!viewStory) return;
+    if (!viewStory) return;
     const list = allStoriesOf(viewStory.memberId);
-    if(viewStory.index<list.length-1) {
-      const ni=viewStory.index+1;
-      setViewStory({...viewStory,index:ni});
-      markSeen(viewStory.memberId,list[ni].id);
+    if (viewStory.index < list.length - 1) {
+      const ni = viewStory.index + 1;
+      setViewStory({ ...viewStory, index: ni });
+      markSeen(viewStory.memberId, list[ni].id);
     } else {
-      const mIdx=members.findIndex(m=>m.id===viewStory.memberId);
-      for(let i=mIdx+1;i<members.length;i++) {
-        if(allStoriesOf(members[i].id).length){openStory(members[i].id);return;}
+      const mIdx = members.findIndex((m) => m.id === viewStory.memberId);
+      for (let i = mIdx + 1; i < members.length; i++) {
+        if (allStoriesOf(members[i].id).length) {
+          openStory(members[i].id);
+          return;
+        }
       }
       setViewStory(null);
     }
   };
 
   const prevStory = () => {
-    if(!viewStory) return;
-    if(viewStory.index>0) {
-      const ni=viewStory.index-1;
-      setViewStory({...viewStory,index:ni});
-      markSeen(viewStory.memberId,allStoriesOf(viewStory.memberId)[ni].id);
+    if (!viewStory) return;
+    if (viewStory.index > 0) {
+      const ni = viewStory.index - 1;
+      setViewStory({ ...viewStory, index: ni });
+      markSeen(viewStory.memberId, allStoriesOf(viewStory.memberId)[ni].id);
     } else setViewStory(null);
-  };return (
+  };
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          fontFamily: "'DM Sans',sans-serif",
+          background: T.bg0,
+          minHeight: "100vh",
+          maxWidth: 430,
+          margin: "0 auto",
+          color: T.txt0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 16,
+        }}
+      >
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            border: `3px solid ${T.line}`,
+            borderTopColor: T.red,
+            borderRadius: "50%",
+            animation: "famspin 0.75s linear infinite",
+          }}
+        />
+        <div style={{ fontSize: 15, color: T.txt1, fontWeight: 600 }}>DoFam lädt…</div>
+        <style>{`@keyframes famspin { to { transform: rotate(360deg) } }`}</style>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div
+        style={{
+          fontFamily: "'DM Sans',sans-serif",
+          background: T.bg0,
+          minHeight: "100vh",
+          maxWidth: 430,
+          margin: "0 auto",
+          color: T.txt0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+          textAlign: "center",
+          gap: 8,
+        }}
+      >
+        <div style={{ fontSize: 40, marginBottom: 8 }}>🏡</div>
+        <p style={{ fontSize: 14, color: T.red, fontWeight: 600 }}>{loadError}</p>
+        <p style={{ fontSize: 12, color: T.txt2 }}>
+          Tabelle «post_reads» oder «families» fehlt? Migration in Supabase ausführen.
+        </p>
+      </div>
+    );
+  }
+
+  return (
     <div style={{fontFamily:"'DM Sans',sans-serif",background:T.bg0,minHeight:"100vh",maxWidth:430,margin:"0 auto",color:T.txt0}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
@@ -407,7 +872,7 @@ function FamilyApp() {
               <div style={{fontSize:10,color:T.txt2,marginTop:4,textTransform:"uppercase",letterSpacing:1,fontFamily:"monospace"}}>{dd}</div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
-              <button className="r" onClick={()=>{setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:members[0].id});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+              <button className="r" onClick={()=>{setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:members[0]?.id??currentMember});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
                 <span style={{fontSize:14}}>+</span> Termin
               </button>
               <div style={{textAlign:"right"}}>
@@ -491,13 +956,13 @@ function FamilyApp() {
         <div style={{padding:"12px 12px",display:"flex",flexDirection:"column",gap:10}}>
           <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
             {members.map(m=>(
-              <button key={m.id} className="r" onClick={()=>setActive(m.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:8,background:active===m.id?m.color+"18":T.bg2,border:`1px solid ${active===m.id?m.color+"44":T.line}`,whiteSpace:"nowrap"}}>
-                <Av m={m} s={22}/><span style={{fontSize:12,fontWeight:active===m.id?600:400,color:active===m.id?m.color:T.txt1}}>{m.name}</span>
+              <button key={m.id} className="r" onClick={()=>setCurrentMember(m.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:8,background:currentMember===m.id?m.color+"18":T.bg2,border:`1px solid ${currentMember===m.id?m.color+"44":T.line}`,whiteSpace:"nowrap"}}>
+                <Av m={m} s={22}/><span style={{fontSize:12,fontWeight:currentMember===m.id?600:400,color:currentMember===m.id?m.color:T.txt1}}>{m.name}</span>
               </button>
             ))}
           </div>
           {[...posts.filter((p:any)=>p.pinned),...posts.filter((p:any)=>!p.pinned)].map((post:any)=>(
-            <PostCard key={post.id} post={post} gm={gm} active={active}
+            <PostCard key={post.id} post={post} gm={gm} active={currentMember}
               expanded={expanded===post.id}
               onExpand={()=>setExpanded(expanded===post.id?null:post.id)}
               onRead={()=>toggleRead(post.id)}
@@ -510,7 +975,7 @@ function FamilyApp() {
       )}{/* KALENDER */}
       {tab==="cal"&&(()=>{
         const allEvs=Object.entries(memberEvents).flatMap(([mid,evs])=>
-          (evs as any[]).map(ev=>({...ev,memberId:parseInt(mid),isoDate:parseEventDate(ev.date)}))
+          (evs as any[]).map(ev=>({...ev,memberId:mid,isoDate:ev.isoDate ?? parseEventDate(ev.date)}))
         ).filter(e=>e.isoDate);
         const eventsForDay=(iso:string)=>allEvs.filter(e=>e.isoDate===iso);
         const y=calMonth.getFullYear(),mo=calMonth.getMonth();
@@ -594,9 +1059,32 @@ function FamilyApp() {
         const open=shopItems.filter((i:any)=>!i.done),done=shopItems.filter((i:any)=>i.done);
         const shown=shopFilter==="open"?open:shopFilter==="done"?done:shopItems;
         const CAT_OPTS=["🛒","🥛","🍞","🥩","🐟","🧀","🥚","🍎","🥦","🍝","🧃","🧹","🧴","💊","🐾"];
-        const addShopItem=()=>{if(!newItem.text.trim())return;setShopItems(p=>[...p,{id:"sh"+Date.now(),text:newItem.text,qty:newItem.qty,done:false,memberId:active,cat:newItem.cat}]);setNewItem({text:"",qty:"",cat:"🛒"});};
-        const toggleDone=(id:string)=>setShopItems(p=>p.map((x:any)=>x.id===id?{...x,done:!x.done}:x));
-        const removeItem=(id:string)=>setShopItems(p=>p.filter((x:any)=>x.id!==id));
+        const addShopItem=async()=>{
+          if(!newItem.text.trim()||!familyId||!currentMember)return;
+          const { data, error } = await supabase.from("shop_items").insert({
+            family_id: familyId,
+            text: newItem.text.trim(),
+            qty: newItem.qty.trim() || null,
+            cat: newItem.cat,
+            done: false,
+            member_id: currentMember,
+          }).select("*").single();
+          if (error || !data) return;
+          setShopItems(p=>[...p,{id:data.id,text:data.text,qty:data.qty||"",done:data.done,memberId:data.member_id,cat:data.cat||"🛒"}]);
+          setNewItem({text:"",qty:"",cat:"🛒"});
+        };
+        const toggleDone=async(id:string)=>{
+          const item=shopItems.find((x:any)=>x.id===id);
+          if(!item)return;
+          const { error } = await supabase.from("shop_items").update({ done: !item.done }).eq("id", id);
+          if (error) return;
+          setShopItems(p=>p.map((x:any)=>x.id===id?{...x,done:!x.done}:x));
+        };
+        const removeItem=async(id:string)=>{
+          const { error } = await supabase.from("shop_items").delete().eq("id", id);
+          if (error) return;
+          setShopItems(p=>p.filter((x:any)=>x.id!==id));
+        };
         return (
           <div style={{padding:"12px 12px",display:"flex",flexDirection:"column",gap:10}}>
             <div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"14px 16px",display:"flex"}}>
@@ -622,7 +1110,12 @@ function FamilyApp() {
               {[["all","Alle"],["open","Offen"],["done","Erledigt"]].map(([k,v])=>(
                 <button key={k} className="r" onClick={()=>setShopFilter(k)} style={{padding:"6px 12px",borderRadius:20,background:shopFilter===k?T.txt0:T.bg3,color:shopFilter===k?T.bg1:T.txt1,fontWeight:shopFilter===k?700:400,fontSize:12,border:`1px solid ${shopFilter===k?T.txt0:T.line}`}}>{v}</button>
               ))}
-              {done.length>0&&<button className="r" onClick={()=>setShopItems(p=>p.filter((x:any)=>!x.done))} style={{marginLeft:"auto",padding:"6px 12px",borderRadius:20,background:T.redT,color:T.red,fontWeight:600,fontSize:12,border:`1px solid ${T.redB}`}}>Erledigte löschen</button>}
+              {done.length>0&&<button className="r" onClick={async()=>{
+                  const ids=done.map((x:any)=>x.id);
+                  const { error } = await supabase.from("shop_items").delete().in("id", ids);
+                  if (error) return;
+                  setShopItems(p=>p.filter((x:any)=>!x.done));
+                }} style={{marginLeft:"auto",padding:"6px 12px",borderRadius:20,background:T.redT,color:T.red,fontWeight:600,fontSize:12,border:`1px solid ${T.redB}`}}>Erledigte löschen</button>}
             </div>
             <div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,overflow:"hidden"}}>
               {shown.length===0&&<div style={{padding:"30px",textAlign:"center",color:T.txt2,fontSize:14}}>{shopFilter==="done"?"Noch nichts erledigt 🛒":"Liste ist leer! 🎉"}</div>}
@@ -662,7 +1155,7 @@ function FamilyApp() {
           {members.map(m=>{
             const myPosts=posts.filter((p:any)=>p.memberId===m.id);
             const reads=myPosts.reduce((s:number,p:any)=>s+p.reads.length,0);
-            const isActive=active===m.id;
+            const isActive=currentMember===m.id;
             return (
               <div key={m.id} className="in" style={{background:T.bg1,border:`1px solid ${isActive?m.color+"44":T.line}`,borderRadius:14,overflow:"hidden"}}>
                 <div style={{padding:"16px 16px 14px",display:"flex",gap:13,alignItems:"center"}}>
@@ -671,11 +1164,11 @@ function FamilyApp() {
                     <button className="r" onClick={()=>setEditPhoto(editPhoto===m.id?null:m.id)} style={{position:"absolute",bottom:-1,right:-1,width:19,height:19,borderRadius:"50%",background:T.bg3,border:`1.5px solid ${T.line2}`,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",color:T.txt1}}>✎</button>
                   </div>
                   <div style={{flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.txt0}}>{m.name}</div><div style={{fontSize:11,color:T.txt2,marginTop:1}}>{m.role}</div></div>
-                  <button className="r" onClick={()=>setActive(m.id)} style={{background:isActive?m.color:T.bg3,border:`1px solid ${isActive?m.color:T.line2}`,borderRadius:7,padding:"6px 13px",fontSize:11,fontWeight:600,color:isActive?"#fff":T.txt1}}>
+                  <button className="r" onClick={()=>setCurrentMember(m.id)} style={{background:isActive?m.color:T.bg3,border:`1px solid ${isActive?m.color:T.line2}`,borderRadius:7,padding:"6px 13px",fontSize:11,fontWeight:600,color:isActive?"#fff":T.txt1}}>
                     {isActive?"✓ Aktiv":"Wählen"}
                   </button>
                 </div>
-                {editPhoto===m.id&&<PhotoPanel m={m} onUpload={f=>uploadPhoto(m.id,f)} onRemove={()=>{setMembers(p=>p.map(x=>x.id===m.id?{...x,photo:null}:x));setEditPhoto(null);}} onClose={()=>setEditPhoto(null)}/>}
+                {editPhoto===m.id&&<PhotoPanel m={m} onUpload={f=>uploadPhoto(m.id,f)} onRemove={async()=>{const { error } = await supabase.from("members").update({ photo_url: null }).eq("id", m.id);if(error)return;setMembers(p=>p.map(x=>x.id===m.id?{...x,photo:null}:x));setEditPhoto(null);}} onClose={()=>setEditPhoto(null)}/>}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:1,background:T.line}}>
                   {[["Posts",myPosts.length],["Gelesen",reads],["Termine",(memberEvents[m.id]||[]).length]].map(([l,v])=>(
                     <div key={String(l)} style={{background:T.bg2,padding:"11px 6px",textAlign:"center"}}>
@@ -802,7 +1295,7 @@ function FamilyApp() {
             <div style={{display:"flex",alignItems:"center",gap:10,padding:"4px 14px 10px",flexShrink:0}}>
               <Av m={m} s={36}/>
               <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{m.name}</div><div style={{fontSize:10,color:"rgba(255,255,255,0.55)"}}>Heute · {s.time}</div></div>
-              {viewStory.memberId===active&&<button className="r" onClick={()=>{deleteStory(viewStory.memberId,s.id);setViewStory(null);}} style={{color:"rgba(255,255,255,0.65)",fontSize:11,padding:"4px 10px",borderRadius:6,background:"rgba(255,255,255,0.12)",fontWeight:600}}>Löschen</button>}
+              {viewStory.memberId===currentMember&&<button className="r" onClick={()=>{deleteStory(viewStory.memberId,s.id);setViewStory(null);}} style={{color:"rgba(255,255,255,0.65)",fontSize:11,padding:"4px 10px",borderRadius:6,background:"rgba(255,255,255,0.12)",fontWeight:600}}>Löschen</button>}
               <button className="r" onClick={()=>setViewStory(null)} style={{color:"rgba(255,255,255,0.75)",fontSize:22,padding:"0 4px"}}>✕</button>
             </div>
             <div className="story-fade" key={s.id} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:s.photo?"#000":s.bg,cursor:"pointer",position:"relative"}}
@@ -814,7 +1307,7 @@ function FamilyApp() {
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span style={{fontSize:13,color:"rgba(255,255,255,0.5)"}}>👁</span>
                 <span style={{fontSize:12,color:"rgba(255,255,255,0.5)"}}>{s.seen.length} gesehen</span>
-                <div style={{display:"flex",marginLeft:2}}>{s.seen.map((sid:number)=><div key={sid} style={{width:22,height:22,borderRadius:"50%",overflow:"hidden",marginLeft:-5,border:"2px solid #000"}}><Av m={gm(sid)} s={22}/></div>)}</div>
+                <div style={{display:"flex",marginLeft:2}}>{s.seen.map((sid:string)=><div key={sid} style={{width:22,height:22,borderRadius:"50%",overflow:"hidden",marginLeft:-5,border:"2px solid #000"}}><Av m={gm(sid)} s={22}/></div>)}</div>
               </div>
             </div>
           </div>
