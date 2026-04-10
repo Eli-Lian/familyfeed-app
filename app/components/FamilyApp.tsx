@@ -447,18 +447,18 @@ function FamilyApp() {
       stMap[row.member_id].push(ui);
     }
     setStories(stMap);
-    const shopQ = supabase.from("shop_items").select("*").order("created_at", { ascending: false });
-    const { data: shopRows, error: shopErr } = await shopQ;
+    const { data: shopRows, error: shopErr } = await supabase
+      .from("shop_items")
+      .select("*")
+      .eq("family_id", fam.id)
+      .order("created_at", { ascending: false });
     if (shopErr) {
       setLoadError(shopErr.message);
       setLoading(false);
       return;
     }
-    const filteredShop = (shopRows || []).filter(
-      (row: { family_id?: string | null }) => row.family_id === fam.id || row.family_id == null
-    );
     setShopItems(
-      filteredShop.map((row: any) => ({
+      (shopRows || []).map((row: any) => ({
         id: row.id,
         text: row.text,
         qty: row.qty || "",
@@ -1181,19 +1181,34 @@ function FamilyApp() {
         const open=shopItems.filter((i:any)=>!i.done),done=shopItems.filter((i:any)=>i.done);
         const shown=shopFilter==="open"?open:shopFilter==="done"?done:shopItems;
         const CAT_OPTS=["🛒","🥛","🍞","🥩","🐟","🧀","🥚","🍎","🥦","🍝","🧃","🧹","🧴","💊","🐾"];
-        const addShopItem=async()=>{
-          if(!newItem.text.trim()||!familyId||!currentMember)return;
-          const { data, error } = await supabase.from("shop_items").insert({
-            family_id: familyId,
-            text: newItem.text.trim(),
-            qty: newItem.qty.trim() || null,
-            cat: newItem.cat,
-            done: false,
-            member_id: currentMember,
-          }).select("*").single();
-          if (error || !data) return;
-          setShopItems(p=>[...p,{id:data.id,text:data.text,qty:data.qty||"",done:data.done,memberId:data.member_id,cat:data.cat||"🛒"}]);
-          setNewItem({text:"",qty:"",cat:"🛒"});
+        const addShopItem = async () => {
+          if (!newItem.text.trim() || !familyId || !currentMember) return;
+          const { data: inserted, error } = await supabase
+            .from("shop_items")
+            .insert({
+              family_id: familyId,
+              text: newItem.text.trim(),
+              qty: newItem.qty.trim() || null,
+              cat: newItem.cat || "🛒",
+              done: false,
+              member_id: currentMember,
+            })
+            .select("id, text, qty, done, member_id, cat")
+            .maybeSingle();
+          if (error) return;
+          if (!inserted) return;
+          setShopItems((p) => [
+            ...p,
+            {
+              id: inserted.id,
+              text: inserted.text,
+              qty: inserted.qty ?? "",
+              done: inserted.done,
+              memberId: inserted.member_id,
+              cat: inserted.cat || "🛒",
+            },
+          ]);
+          setNewItem({ text: "", qty: "", cat: "🛒" });
         };
         const toggleDone=async(id:string)=>{
           const item=shopItems.find((x:any)=>x.id===id);
