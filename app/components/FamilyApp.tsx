@@ -1146,29 +1146,6 @@ function FamilyApp() {
             <button
               type="button"
               className="r"
-              onClick={()=>setCompose(true)}
-              aria-label="Neuer Post"
-              style={{
-                width:36,
-                height:36,
-                borderRadius:"50%",
-                background:"#C8522A",
-                color:"#fff",
-                fontSize:22,
-                fontWeight:500,
-                display:"flex",
-                alignItems:"center",
-                justifyContent:"center",
-                flexShrink:0,
-                lineHeight:1,
-                padding:0,
-              }}
-            >
-              +
-            </button>
-            <button
-              type="button"
-              className="r"
               onClick={() => window.location.reload()}
               aria-label="Aktualisieren"
               style={{
@@ -1359,26 +1336,55 @@ function FamilyApp() {
 
       {/* FEED */}
       {tab==="feed"&&(
-        <div style={{ width: "100%", padding: "12px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
-            {members.map(m=>(
-              <button key={m.id} className="r" onClick={()=>setCurrentMember(m.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:8,background:currentMember===m.id?m.color+"18":T.bg2,border:`1px solid ${currentMember===m.id?m.color+"44":T.line}`,whiteSpace:"nowrap"}}>
-                <Av m={m} s={22}/><span style={{fontSize:12,fontWeight:currentMember===m.id?600:400,color:currentMember===m.id?m.color:T.txt1}}>{m.name}</span>
-              </button>
+        <>
+          <div style={{ width: "100%", padding: "12px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
+              {members.map(m=>(
+                <button key={m.id} className="r" onClick={()=>setCurrentMember(m.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:8,background:currentMember===m.id?m.color+"18":T.bg2,border:`1px solid ${currentMember===m.id?m.color+"44":T.line}`,whiteSpace:"nowrap"}}>
+                  <Av m={m} s={22}/><span style={{fontSize:12,fontWeight:currentMember===m.id?600:400,color:currentMember===m.id?m.color:T.txt1}}>{m.name}</span>
+                </button>
+              ))}
+            </div>
+            {[...posts.filter((p:any)=>p.pinned),...posts.filter((p:any)=>!p.pinned)].map((post:any)=>(
+              <PostCard key={post.id} post={post} gm={gm} active={currentMember}
+                expanded={expanded===post.id}
+                onExpand={()=>setExpanded(expanded===post.id?null:post.id)}
+                onRead={()=>toggleRead(post.id)}
+                comment={expanded===post.id?comment:""}
+                onCommentChange={setComment}
+                onComment={()=>addComment(post.id)}
+                onDelete={post.memberId===currentMember ? () => void deletePost(post.id) : undefined}/>
             ))}
+            <div style={{height:40}}/>
           </div>
-          {[...posts.filter((p:any)=>p.pinned),...posts.filter((p:any)=>!p.pinned)].map((post:any)=>(
-            <PostCard key={post.id} post={post} gm={gm} active={currentMember}
-              expanded={expanded===post.id}
-              onExpand={()=>setExpanded(expanded===post.id?null:post.id)}
-              onRead={()=>toggleRead(post.id)}
-              comment={expanded===post.id?comment:""}
-              onCommentChange={setComment}
-              onComment={()=>addComment(post.id)}
-              onDelete={post.memberId===currentMember ? () => void deletePost(post.id) : undefined}/>
-          ))}
-          <div style={{height:40}}/>
-        </div>
+          <button
+            type="button"
+            className="r"
+            onClick={() => setCompose(true)}
+            aria-label="Neuer Post"
+            style={{
+              position: "fixed",
+              bottom: 24,
+              right: 24,
+              zIndex: 55,
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: T.red,
+              color: "#fff",
+              fontSize: 28,
+              fontWeight: 500,
+              lineHeight: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              boxShadow: "0 6px 20px rgba(44,31,20,0.28), 0 2px 6px rgba(44,31,20,0.12)",
+            }}
+          >
+            +
+          </button>
+        </>
       )}{/* KALENDER */}
       {tab==="cal"&&(()=>{
         const allEvs=Object.entries(memberEvents).flatMap(([mid,evs])=>
