@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { subscribeToPush } from "@/lib/push";
 
 const T = {
   bg0:"#F5EFE6", bg1:"#FFFFFF", bg2:"#F0E9DF", bg3:"#EAE2D6", bg4:"#E2D8CA",
@@ -210,6 +211,7 @@ function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCom
 
 function FamilyApp() {
   const router = useRouter();
+  const pushSetupDoneRef = useRef(false);
   const [tab, setTab] = useState("dashboard");
   const [familyId, setFamilyId] = useState<string | null>(null);
   const [members, setMembers] = useState<UIMember[]>([]);
@@ -475,6 +477,27 @@ function FamilyApp() {
   }, [loadFamilyData]);
 
   useEffect(() => {
+    if (loading || loadError || !familyId || !currentMember) return;
+    if (pushSetupDoneRef.current) return;
+    pushSetupDoneRef.current = true;
+    const memberId = currentMember;
+    let cancelled = false;
+    (async () => {
+      if (typeof window === "undefined" || !("Notification" in window) || !("serviceWorker" in navigator)) return;
+      const perm = await Notification.requestPermission();
+      if (cancelled || perm !== "granted") return;
+      try {
+        await subscribeToPush(memberId);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, loadError, familyId, currentMember]);
+
+  useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -571,6 +594,30 @@ function FamilyApp() {
     ]);
     setNewPost({ content: "", type: "status", memberId: currentMember });
     setCompose(false);
+
+    if (familyId) {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        const author = members.find((m) => m.id === data.member_id);
+        const preview = (data.content || "").trim().slice(0, 100);
+        const pushBody = preview.length > 0 ? preview + (preview.length >= 100 ? "…" : "") : "Neuer Post in DoFam";
+        fetch("/api/push", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            familyId,
+            title: "DoFam",
+            body: `${author?.name ?? "Familie"}: ${pushBody}`,
+            url: "/",
+          }),
+        }).catch(() => {});
+      }
+    }
   };
 
   const uploadPhoto = async (memberId: string, file: File) => {
