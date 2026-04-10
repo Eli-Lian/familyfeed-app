@@ -365,6 +365,13 @@ function FamilyApp() {
   const [settingsModal, setSettingsModal] = useState(false);
   const [settingsNotifFeedback, setSettingsNotifFeedback] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState("");
+  const [feedbackModal, setFeedbackModal] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState<"bug" | "idea" | "general">("general");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackName, setFeedbackName] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackDone, setFeedbackDone] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const loadFamilyData = useCallback(async () => {
     setLoadError(null);
@@ -1805,6 +1812,30 @@ function FamilyApp() {
               <button
                 type="button"
                 className="r"
+                onClick={() => {
+                  setFeedbackError(null);
+                  setFeedbackDone(false);
+                  setFeedbackMessage("");
+                  setFeedbackName("");
+                  setFeedbackCategory("general");
+                  setFeedbackModal(true);
+                }}
+                style={{
+                  width: "100%",
+                  padding: "13px",
+                  borderRadius: 11,
+                  background: "#F5EFE6",
+                  border: `1.5px solid ${T.red}`,
+                  color: T.red,
+                  fontWeight: 700,
+                  fontSize: 14,
+                }}
+              >
+                💡 Feedback geben
+              </button>
+              <button
+                type="button"
+                className="r"
                 onClick={async () => {
                   await supabase.auth.signOut();
                   setSettingsModal(false);
@@ -1839,6 +1870,273 @@ function FamilyApp() {
               >
                 Schließen
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FEEDBACK MODAL */}
+      {feedbackModal && (
+        <div
+          className="dim"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(44,31,20,0.55)",
+            zIndex: 170,
+            display: "flex",
+            alignItems: "flex-end",
+            maxWidth: 430,
+            margin: "0 auto",
+          }}
+        >
+          <div
+            className="slide"
+            style={{
+              background: "#F5EFE6",
+              borderRadius: "20px 20px 0 0",
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              borderTop: `3px solid ${T.red}`,
+              boxShadow: "0 -8px 32px rgba(44,31,20,0.12)",
+            }}
+          >
+            <div style={{ width: 32, height: 3, background: T.line2, borderRadius: 2, margin: "12px auto 0" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px 0" }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: T.txt0 }}>Feedback & Ideen 💡</div>
+              <button
+                type="button"
+                className="r"
+                onClick={() => {
+                  setFeedbackModal(false);
+                  setFeedbackDone(false);
+                  setFeedbackError(null);
+                }}
+                style={{
+                  background: T.bg1,
+                  borderRadius: "50%",
+                  width: 32,
+                  height: 32,
+                  fontSize: 14,
+                  color: T.txt1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: `1px solid ${T.line}`,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ padding: "16px 18px 28px", display: "flex", flexDirection: "column", gap: 14 }}>
+              {feedbackDone ? (
+                <div
+                  style={{
+                    background: T.bg1,
+                    border: `1px solid ${T.green}44`,
+                    borderRadius: 14,
+                    padding: "22px 16px",
+                    textAlign: "center",
+                  }}
+                >
+                  <p style={{ fontSize: 15, fontWeight: 600, color: T.txt0, lineHeight: 1.5 }}>
+                    Danke für dein Feedback! 🙏 Wir lesen alles.
+                  </p>
+                  <button
+                    type="button"
+                    className="r"
+                    onClick={() => {
+                      setFeedbackModal(false);
+                      setFeedbackDone(false);
+                      setFeedbackError(null);
+                    }}
+                    style={{
+                      marginTop: 16,
+                      width: "100%",
+                      padding: "12px",
+                      borderRadius: 10,
+                      background: T.red,
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 14,
+                    }}
+                  >
+                    Schließen
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontSize: 13, color: T.txt1, lineHeight: 1.45, marginTop: -4 }}>
+                    Hilf uns DoFam besser zu machen!
+                  </p>
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: T.txt2,
+                        textTransform: "uppercase",
+                        letterSpacing: 1,
+                        marginBottom: 8,
+                      }}
+                    >
+                      Kategorie
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {(
+                        [
+                          { id: "bug" as const, emoji: "🐛", label: "Fehler melden" },
+                          { id: "idea" as const, emoji: "💡", label: "Idee vorschlagen" },
+                          { id: "general" as const, emoji: "⭐", label: "Allgemeines Feedback" },
+                        ] as const
+                      ).map((c) => {
+                        const on = feedbackCategory === c.id;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="r"
+                            onClick={() => setFeedbackCategory(c.id)}
+                            style={{
+                              width: "100%",
+                              padding: "12px 14px",
+                              borderRadius: 11,
+                              textAlign: "left",
+                              background: on ? "rgba(200,82,42,0.12)" : T.bg1,
+                              border: `1.5px solid ${on ? T.red : T.line}`,
+                              color: T.txt0,
+                              fontWeight: on ? 700 : 500,
+                              fontSize: 14,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                            }}
+                          >
+                            <span style={{ fontSize: 18 }} aria-hidden>
+                              {c.emoji}
+                            </span>
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="feedback-message"
+                      style={{
+                        display: "block",
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: T.txt2,
+                        textTransform: "uppercase",
+                        letterSpacing: 1,
+                        marginBottom: 7,
+                      }}
+                    >
+                      Was möchtest du uns mitteilen?
+                    </label>
+                    <textarea
+                      id="feedback-message"
+                      value={feedbackMessage}
+                      onChange={(e) => setFeedbackMessage(e.target.value)}
+                      rows={5}
+                      placeholder="Deine Nachricht…"
+                      style={{
+                        width: "100%",
+                        background: T.bg1,
+                        border: `1px solid ${T.line2}`,
+                        borderRadius: 12,
+                        padding: "12px 14px",
+                        fontSize: 14,
+                        color: T.txt0,
+                        lineHeight: 1.5,
+                        resize: "vertical",
+                        minHeight: 120,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="feedback-name"
+                      style={{
+                        display: "block",
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: T.txt2,
+                        textTransform: "uppercase",
+                        letterSpacing: 1,
+                        marginBottom: 7,
+                      }}
+                    >
+                      Name <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
+                    </label>
+                    <input
+                      id="feedback-name"
+                      type="text"
+                      value={feedbackName}
+                      onChange={(e) => setFeedbackName(e.target.value)}
+                      placeholder="Wie dürfen wir dich nennen?"
+                      style={{
+                        width: "100%",
+                        background: T.bg1,
+                        border: `1px solid ${T.line2}`,
+                        borderRadius: 12,
+                        padding: "11px 14px",
+                        fontSize: 14,
+                        color: T.txt0,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                  </div>
+                  {feedbackError ? (
+                    <p style={{ fontSize: 13, color: T.red, fontWeight: 600 }} role="alert">
+                      {feedbackError}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="r"
+                    disabled={feedbackSubmitting || !feedbackMessage.trim()}
+                    onClick={async () => {
+                      const msg = feedbackMessage.trim();
+                      if (!msg) return;
+                      setFeedbackSubmitting(true);
+                      setFeedbackError(null);
+                      const email =
+                        userEmail ||
+                        (await supabase.auth.getUser()).data.user?.email ||
+                        null;
+                      const { error } = await supabase.from("feedback").insert({
+                        category: feedbackCategory,
+                        message: msg,
+                        name: feedbackName.trim() || null,
+                        user_email: email,
+                      });
+                      setFeedbackSubmitting(false);
+                      if (error) {
+                        setFeedbackError(error.message);
+                        return;
+                      }
+                      setFeedbackDone(true);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "14px",
+                      borderRadius: 11,
+                      background: T.red,
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 15,
+                      opacity: feedbackSubmitting || !feedbackMessage.trim() ? 0.55 : 1,
+                    }}
+                  >
+                    {feedbackSubmitting ? "Wird gesendet…" : "Feedback senden"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
