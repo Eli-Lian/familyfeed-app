@@ -254,6 +254,7 @@ function FamilyApp() {
   const [memberInviteError, setMemberInviteError] = useState<string | null>(null);
   const [memberInviteCopied, setMemberInviteCopied] = useState(false);
   const [settingsModal, setSettingsModal] = useState(false);
+  const [settingsPushNotice, setSettingsPushNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [userEmail, setUserEmail] = useState("");
 
   const loadFamilyData = useCallback(async () => {
@@ -974,6 +975,7 @@ function FamilyApp() {
                   data: { user },
                 } = await supabase.auth.getUser();
                 if (user?.email) setUserEmail(user.email);
+                setSettingsPushNotice(null);
                 setSettingsModal(true);
               }}
               aria-label="Einstellungen"
@@ -1475,6 +1477,87 @@ function FamilyApp() {
                 >
                   {userEmail || "—"}
                 </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.txt2, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                  Push-Benachrichtigungen
+                </div>
+                <button
+                  type="button"
+                  className="r"
+                  onClick={async () => {
+                    setSettingsPushNotice(null);
+                    if (
+                      typeof window === "undefined" ||
+                      !("Notification" in window) ||
+                      !("serviceWorker" in navigator) ||
+                      !("PushManager" in window)
+                    ) {
+                      setSettingsPushNotice({
+                        type: "error",
+                        text: "Benachrichtigungen werden auf diesem Gerät nicht unterstützt",
+                      });
+                      return;
+                    }
+                    if (!currentMember) {
+                      setSettingsPushNotice({
+                        type: "error",
+                        text: "Kein Familienmitglied ausgewählt.",
+                      });
+                      return;
+                    }
+                    const perm = await Notification.requestPermission();
+                    if (perm === "denied") {
+                      setSettingsPushNotice({
+                        type: "error",
+                        text: "Bitte erlaube Benachrichtigungen in den Einstellungen",
+                      });
+                      return;
+                    }
+                    if (perm !== "granted") {
+                      setSettingsPushNotice({
+                        type: "error",
+                        text: "Benachrichtigungen nicht aktiviert.",
+                      });
+                      return;
+                    }
+                    try {
+                      await subscribeToPush(currentMember);
+                      setSettingsPushNotice({ type: "success", text: "Benachrichtigungen aktiviert! ✅" });
+                    } catch {
+                      setSettingsPushNotice({
+                        type: "error",
+                        text: "Abonnement fehlgeschlagen. Bitte später erneut versuchen.",
+                      });
+                    }
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "13px",
+                    borderRadius: 11,
+                    background: T.bg1,
+                    border: `2px solid ${T.red}`,
+                    color: T.red,
+                    fontWeight: 700,
+                    fontSize: 14,
+                  }}
+                >
+                  Benachrichtigungen aktivieren
+                </button>
+                {settingsPushNotice ? (
+                  <p
+                    style={{
+                      marginTop: 10,
+                      fontSize: 13,
+                      lineHeight: 1.45,
+                      color: settingsPushNotice.type === "success" ? T.green : T.red,
+                      fontWeight: settingsPushNotice.type === "success" ? 600 : 500,
+                    }}
+                    role="status"
+                  >
+                    {settingsPushNotice.text}
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"
