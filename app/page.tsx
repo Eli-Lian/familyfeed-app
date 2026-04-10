@@ -25,12 +25,11 @@ export default function Home() {
         return;
       }
 
-      // limit(1): reliable with 0 or 1+ rows (avoid .single() PGRST116 / multiple-row errors)
-      const { data: famRows, error: famErr } = await supabase
+      const { data: family, error: famErr } = await supabase
         .from("families")
         .select("id")
         .eq("created_by", user.id)
-        .limit(1);
+        .maybeSingle();
 
       if (cancelled) return;
 
@@ -39,7 +38,7 @@ export default function Home() {
         return;
       }
 
-      if (!famRows?.length) {
+      if (!family) {
         router.push("/onboarding");
         return;
       }
