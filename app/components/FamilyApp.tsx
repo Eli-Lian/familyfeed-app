@@ -323,6 +323,7 @@ function FamilyApp() {
   const avatarUploadMemberIdRef = useRef<string | null>(null);
   const [tab, setTab] = useState("dashboard");
   const [familyId, setFamilyId] = useState<string | null>(null);
+  const [familyName, setFamilyName] = useState("");
   const [members, setMembers] = useState<UIMember[]>([]);
   const [memberEvents, setMemberEvents] = useState<Record<string, any[]>>({});
   const [posts, setPosts] = useState<any[]>([]);
@@ -379,26 +380,30 @@ function FamilyApp() {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
+      setFamilyName("");
       setLoading(false);
       return;
     }
     setUserEmail(user.email ?? "");
     const { data: fam, error: famErr } = await supabase
       .from("families")
-      .select("id")
+      .select("id, name")
       .eq("created_by", user.id)
       .maybeSingle();
     if (famErr) {
+      setFamilyName("");
       setLoadError(famErr.message);
       setLoading(false);
       return;
     }
     if (!fam?.id) {
+      setFamilyName("");
       setLoadError("Keine Familie gefunden.");
       setLoading(false);
       return;
     }
     setFamilyId(fam.id);
+    setFamilyName(typeof fam.name === "string" ? fam.name.trim() : "");
     const { data: memRows, error: memErr } = await supabase
       .from("members")
       .select("id, name, avatar, color, role, photo_url")
@@ -624,6 +629,13 @@ function FamilyApp() {
   const hh = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   const ss = String(now.getSeconds()).padStart(2, "0");
   const dd = now.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+  const familyHeaderLabel =
+    familyName.length > 0
+      ? /^familie\b/i.test(familyName)
+        ? familyName
+        : `Familie ${familyName}`
+      : "";
+  const headerSubline = familyHeaderLabel ? `${familyHeaderLabel} · ${dd}` : dd;
   const gm = (id: string) => members.find((m) => m.id === id);
   const am = gm(currentMember);
 
@@ -1117,11 +1129,18 @@ function FamilyApp() {
       {/* HEADER */}
       <header style={{background:T.bg1,borderBottom:`1px solid ${T.line}`,position:"sticky",top:0,zIndex:50}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 18px 10px"}}>
-          <div>
-            <div style={{fontSize:17,fontWeight:700,letterSpacing:-0.4,display:"flex",gap:0}}>
-              <span style={{color:T.txt0}}>Do</span><span style={{color:T.amber}}>.</span><span style={{color:T.red}}>Fam</span>
+          <div style={{ minWidth: 0, paddingRight: 8 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: -0.4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 0 }}>
+                <span style={{ color: T.txt0 }}>Do</span>
+                <span style={{ color: T.amber }}>.</span>
+                <span style={{ color: T.red }}>Fam</span>
+              </span>
+              <span style={{ fontSize: 16, lineHeight: 1 }} aria-hidden>
+                🏡
+              </span>
             </div>
-            <div style={{fontSize:10,color:T.txt2,marginTop:1,fontFamily:"monospace",letterSpacing:0.3}}>{dd}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: T.txt2, marginTop: 4, lineHeight: 1.35 }}>{headerSubline}</div>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
             <button
