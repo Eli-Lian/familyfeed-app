@@ -91,6 +91,91 @@ function formatDbTime(t: string | null | undefined): string {
   return s.length >= 5 ? s.slice(0, 5) : s;
 }
 
+type EventRecurrence = "none" | "daily" | "weekly" | "monthly" | "yearly";
+
+function normalizeRecurrence(v: string | null | undefined): EventRecurrence {
+  if (v === "daily" || v === "weekly" || v === "monthly" || v === "yearly") return v;
+  return "none";
+}
+
+function compareIso(a: string, b: string): number {
+  return a.localeCompare(b);
+}
+
+function maxIso(a: string, b: string): string {
+  return compareIso(a, b) >= 0 ? a : b;
+}
+
+function addDaysIso(iso: string, n: number): string {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return localYmd(d);
+}
+
+function isoWeekdayMon0(iso: string): number {
+  const d = new Date(iso + "T12:00:00");
+  return (d.getDay() + 6) % 7;
+}
+
+/** True if a recurring (or one-off) series anchored at `anchorIso` occurs on calendar day `iso` (YYYY-MM-DD). */
+function eventOccursOn(iso: string, anchorIso: string, recurrence: EventRecurrence): boolean {
+  if (!anchorIso) return false;
+  if (compareIso(iso, anchorIso) < 0) return false;
+  if (recurrence === "none") return iso === anchorIso;
+  const a = new Date(anchorIso + "T12:00:00");
+  const t = new Date(iso + "T12:00:00");
+  switch (recurrence) {
+    case "daily":
+      return true;
+    case "weekly":
+      return isoWeekdayMon0(iso) === isoWeekdayMon0(anchorIso);
+    case "monthly":
+      return t.getDate() === a.getDate();
+    case "yearly":
+      return t.getMonth() === a.getMonth() && t.getDate() === a.getDate();
+    default:
+      return false;
+  }
+}
+
+const UPCOMING_OCCURRENCE_HORIZON_DAYS = 400;
+
+function expandMemberUpcomingOccurrences(raw: any[], fromIso: string): any[] {
+  const endIso = addDaysIso(fromIso, UPCOMING_OCCURRENCE_HORIZON_DAYS);
+  const out: any[] = [];
+  for (const ev of raw) {
+    const anchor = ev.isoDate as string | null | undefined;
+    if (!anchor) continue;
+    const rec = normalizeRecurrence(ev.recurrence);
+    if (rec === "none") {
+      if (compareIso(anchor, fromIso) >= 0 && compareIso(anchor, endIso) <= 0) {
+        out.push({ ...ev, occurrenceIso: anchor, date: formatEventDateLabel(anchor) });
+      }
+      continue;
+    }
+    let d = maxIso(fromIso, anchor);
+    while (compareIso(d, endIso) <= 0) {
+      if (eventOccursOn(d, anchor, rec)) {
+        out.push({ ...ev, occurrenceIso: d, date: formatEventDateLabel(d) });
+      }
+      d = addDaysIso(d, 1);
+    }
+  }
+  out.sort(
+    (a, b) =>
+      compareIso(a.occurrenceIso, b.occurrenceIso) || String(a.time).localeCompare(String(b.time))
+  );
+  return out;
+}
+
+const RECURRENCE_OPTIONS: { id: EventRecurrence; label: string }[] = [
+  { id: "none", label: "Einmalig" },
+  { id: "daily", label: "Täglich" },
+  { id: "weekly", label: "Wöchentlich" },
+  { id: "monthly", label: "Monatlich" },
+  { id: "yearly", label: "Jährlich" },
+];
+
 /** Shareable join links from the Familie tab (matches production app URL). */
 const MEMBER_INVITE_APP_BASE = "https://familyfeed-app.vercel.app";
 
@@ -239,6 +324,7 @@ function FamilyApp() {
     time: "",
     icon: "📅",
     forMemberId: "",
+    recurrence: "none" as EventRecurrence,
   });
   const [shopItems, setShopItems] = useState<any[]>([]);
   const [newItem, setNewItem] = useState({ text: "", qty: "", cat: "🛒" });
@@ -402,6 +488,7 @@ function FamilyApp() {
     for (const m of memberIds) evMap[m] = [];
     for (const row of evRows || []) {
       const iso = row.date ? String(row.date).slice(0, 10) : null;
+      const rec = normalizeRecurrence(row.recurrence);
       const ui = {
         id: row.id,
         title: row.title,
@@ -411,6 +498,7 @@ function FamilyApp() {
         urgent: !!row.urgent,
         addedBy: row.added_by || undefined,
         isoDate: iso,
+        recurrence: rec,
       };
       if (!evMap[row.member_id]) evMap[row.member_id] = [];
       evMap[row.member_id].push(ui);
@@ -640,6 +728,7 @@ function FamilyApp() {
     const iso = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : parseEventDate(d);
     if (!iso) return;
     const timeVal = newEvent.time?.trim() || null;
+    const rec = normalizeRecurrence(newEvent.recurrence);
     const { data, error } = await supabase
       .from("member_events")
       .insert({
@@ -650,6 +739,7 @@ function FamilyApp() {
         icon: newEvent.icon || "📅",
         urgent: false,
         added_by: currentMember,
+        recurrence: rec,
       })
       .select("*")
       .single();
@@ -665,12 +755,13 @@ function FamilyApp() {
       urgent: !!row.urgent,
       addedBy: row.added_by || undefined,
       isoDate: rowIso,
+      recurrence: normalizeRecurrence(row.recurrence),
     };
     setMemberEvents((p) => ({
       ...p,
       [targetId]: [ui, ...(p[targetId] || [])],
     }));
-    setNewEvent({ title: "", date: "", time: "", icon: "📅", forMemberId: currentMember });
+    setNewEvent({ title: "", date: "", time: "", icon: "📅", forMemberId: currentMember, recurrence: "none" });
     setAddEventModal(false);
   };
 
@@ -1078,12 +1169,12 @@ function FamilyApp() {
               <div style={{fontSize:10,color:T.txt2,marginTop:4,textTransform:"uppercase",letterSpacing:1,fontFamily:"monospace"}}>{dd}</div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
-              <button className="r" onClick={()=>{setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:members[0]?.id??currentMember});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+              <button className="r" onClick={()=>{setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:members[0]?.id??currentMember,recurrence:"none"});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
                 <span style={{fontSize:14}}>+</span> Termin
               </button>
               <div style={{textAlign:"right"}}>
                 <div style={{fontSize:10,color:T.txt2,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8}}>Heute offen</div>
-                <div style={{fontSize:20,fontWeight:700,color:T.txt0}}>{Object.values(memberEvents).flat().filter((e:any)=>e.date==="Heute").length}</div>
+                <div style={{fontSize:20,fontWeight:700,color:T.txt0}}>{Object.values(memberEvents).flat().filter((e:any)=>e.isoDate && eventOccursOn(TODAY_ISO, e.isoDate, normalizeRecurrence(e.recurrence))).length}</div>
               </div>
             </div>
           </div>
@@ -1091,8 +1182,9 @@ function FamilyApp() {
           {/* PERSON CARDS */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
             {members.map(m=>{
-              const evs=(memberEvents[m.id]||[]).slice(0,3);
-              const todayCount=evs.filter((e:any)=>e.date==="Heute").length;
+              const upcoming=expandMemberUpcomingOccurrences(memberEvents[m.id]||[],TODAY_ISO);
+              const evs=upcoming.slice(0,3);
+              const todayCount=(memberEvents[m.id]||[]).filter((e:any)=>e.isoDate&&eventOccursOn(TODAY_ISO,e.isoDate,normalizeRecurrence(e.recurrence))).length;
               return (
                 <div key={m.id} className="in" style={{background:m.color+"0D",border:`1.5px solid ${m.color}33`,borderRadius:14,overflow:"hidden",display:"flex",flexDirection:"column"}}>
                   <div style={{padding:"11px 12px 9px",background:m.color+"22",borderBottom:`1px solid ${m.color}33`,display:"flex",alignItems:"center",gap:8}}>
@@ -1103,14 +1195,14 @@ function FamilyApp() {
                         ?<div style={{fontSize:9,color:m.color,fontWeight:700,marginTop:1,textTransform:"uppercase",letterSpacing:0.5}}>{todayCount} heute</div>
                         :<div style={{fontSize:9,color:T.txt2,marginTop:1}}>Keine heute</div>}
                     </div>
-                    <button className="r" onClick={()=>{setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:m.id});setAddEventModal(true);}} style={{width:22,height:22,borderRadius:6,background:m.color+"22",border:`1px solid ${m.color}55`,color:m.color,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>+</button>
+                    <button className="r" onClick={()=>{setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:m.id,recurrence:"none"});setAddEventModal(true);}} style={{width:22,height:22,borderRadius:6,background:m.color+"22",border:`1px solid ${m.color}55`,color:m.color,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>+</button>
                   </div>
                   <div style={{flex:1,padding:"6px 0"}}>
                     {evs.length===0&&<div style={{padding:"12px",textAlign:"center",fontSize:11,color:T.txt2}}>Keine Termine</div>}
                     {evs.map((ev:any,i:number)=>{
                       const addedBy=ev.addedBy?gm(ev.addedBy):null;
                       return (
-                        <div key={ev.id} className="ev-row" style={{display:"flex",alignItems:"center",gap:7,padding:"7px 12px",borderBottom:i<evs.length-1?`1px solid ${m.color}18`:"none"}}>
+                        <div key={`${ev.id}-${ev.occurrenceIso}`} className="ev-row" style={{display:"flex",alignItems:"center",gap:7,padding:"7px 12px",borderBottom:i<evs.length-1?`1px solid ${m.color}18`:"none"}}>
                           <div style={{width:28,height:28,borderRadius:7,background:ev.urgent?m.color+"33":"rgba(0,0,0,0.05)",border:`1px solid ${ev.urgent?m.color+"66":m.color+"22"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{ev.icon}</div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontSize:12,fontWeight:ev.urgent?600:400,color:ev.urgent?T.txt0:T.txt1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</div>
@@ -1124,7 +1216,7 @@ function FamilyApp() {
                       );
                     })}
                   </div>
-                  {(memberEvents[m.id]||[]).length>3&&<div style={{padding:"6px 12px",borderTop:`1px solid ${m.color}22`,textAlign:"center",background:m.color+"0A"}}><span style={{fontSize:10,color:m.color,fontWeight:600}}>+{(memberEvents[m.id]||[]).length-3} weitere</span></div>}
+                  {upcoming.length>3&&<div style={{padding:"6px 12px",borderTop:`1px solid ${m.color}22`,textAlign:"center",background:m.color+"0A"}}><span style={{fontSize:10,color:m.color,fontWeight:600}}>+{upcoming.length-3} weitere</span></div>}
                 </div>
               );
             })}
@@ -1181,9 +1273,14 @@ function FamilyApp() {
       )}{/* KALENDER */}
       {tab==="cal"&&(()=>{
         const allEvs=Object.entries(memberEvents).flatMap(([mid,evs])=>
-          (evs as any[]).map(ev=>({...ev,memberId:mid,isoDate:ev.isoDate ?? parseEventDate(ev.date)}))
-        ).filter(e=>e.isoDate);
-        const eventsForDay=(iso:string)=>allEvs.filter(e=>e.isoDate===iso);
+          (evs as any[]).map(ev=>({
+            ...ev,
+            memberId:mid,
+            isoDate:(ev.isoDate ?? parseEventDate(ev.date)) || null,
+            recurrence:normalizeRecurrence(ev.recurrence),
+          }))
+        ).filter((e):e is typeof e & { isoDate: string }=>!!e.isoDate);
+        const eventsForDay=(iso:string)=>allEvs.filter(e=>eventOccursOn(iso,e.isoDate,e.recurrence));
         const y=calMonth.getFullYear(),mo=calMonth.getMonth();
         const firstDay=new Date(y,mo,1),lastDay=new Date(y,mo+1,0);
         const startOffset=(firstDay.getDay()+6)%7;
@@ -1230,7 +1327,7 @@ function FamilyApp() {
                   <div style={{fontSize:13,fontWeight:700,color:T.txt0}}>{selLabel}</div>
                   <div style={{fontSize:10,color:T.txt2,marginTop:1}}>{selEvs.length===0?"Keine Termine":`${selEvs.length} Termin${selEvs.length>1?"e":""}`}</div>
                 </div>
-                <button className="r" onClick={()=>{setNewEvent({title:"",date:calSelected,time:"",icon:"📅",forMemberId:members[0].id});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12}}>+ Termin</button>
+                <button className="r" onClick={()=>{setNewEvent({title:"",date:calSelected,time:"",icon:"📅",forMemberId:members[0].id,recurrence:"none"});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12}}>+ Termin</button>
               </div>
               {selEvs.length===0
                 ?<div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"28px 16px",textAlign:"center"}}><div style={{fontSize:28,marginBottom:8}}>📅</div><div style={{fontSize:14,color:T.txt2}}>Kein Termin an diesem Tag</div></div>
@@ -1238,7 +1335,7 @@ function FamilyApp() {
                   const mem=members.find(m=>m.id===ev.memberId);
                   const addedBy=ev.addedBy?members.find(m=>m.id===ev.addedBy):null;
                   return (
-                    <div key={ev.id} className="in" style={{background:T.bg1,border:`1.5px solid ${mem?.color}33`,borderRadius:14,padding:"12px 14px",display:"flex",gap:12,alignItems:"center",borderLeft:`4px solid ${mem?.color}`}}>
+                    <div key={`${ev.id}-${calSelected}`} className="in" style={{background:T.bg1,border:`1.5px solid ${mem?.color}33`,borderRadius:14,padding:"12px 14px",display:"flex",gap:12,alignItems:"center",borderLeft:`4px solid ${mem?.color}`}}>
                       <div style={{width:40,height:40,borderRadius:10,background:mem?.color+"18",border:`1px solid ${mem?.color}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{ev.icon}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:14,fontWeight:600,color:T.txt0}}>{ev.title}</div>
@@ -1816,6 +1913,34 @@ function FamilyApp() {
                         fontFamily: "inherit",
                       }}
                     />
+                  </div>
+                </div>
+                <div>
+                  <SLabel>Wiederholung</SLabel>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                    {RECURRENCE_OPTIONS.map((opt) => {
+                      const on = newEvent.recurrence === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className="r"
+                          onClick={() => setNewEvent((p) => ({ ...p, recurrence: opt.id }))}
+                          style={{
+                            padding: "8px 14px",
+                            borderRadius: 999,
+                            background: on ? T.amber + "24" : T.bg3,
+                            border: `1.5px solid ${on ? T.amber : T.line}`,
+                            color: on ? T.txt0 : T.txt1,
+                            fontWeight: on ? 700 : 500,
+                            fontSize: 12,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 <div style={{background:T.bg2,borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:8}}>
