@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { subscribeToPush } from "@/lib/push";
@@ -89,6 +89,14 @@ function formatDbTime(t: string | null | undefined): string {
   if (!t) return "–";
   const s = String(t);
   return s.length >= 5 ? s.slice(0, 5) : s;
+}
+
+/** Path inside bucket `avatars` from a Supabase public object URL, or null. */
+function extractAvatarsStoragePath(photoUrl: string | null | undefined): string | null {
+  if (!photoUrl || !photoUrl.includes("/object/public/avatars/")) return null;
+  const marker = "/object/public/avatars/";
+  const i = photoUrl.indexOf(marker);
+  return decodeURIComponent(photoUrl.slice(i + marker.length));
 }
 
 type EventRecurrence = "none" | "daily" | "weekly" | "monthly" | "yearly";
@@ -233,23 +241,6 @@ function SLabel({ children }: { children:React.ReactNode }) {
   );
 }
 
-function PhotoPanel({ m, onUpload, onRemove, onClose }: { m:any, onUpload:(f:File)=>void, onRemove:()=>void, onClose:()=>void }) {
-  const ref = useRef<HTMLInputElement>(null);
-  return (
-    <div style={{background:T.bg2,borderTop:`1px solid ${T.line}`,padding:"12px 16px"}}>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:9}}>
-        <span style={{fontSize:11,fontWeight:600,color:T.txt1}}>Foto für {m.name}</span>
-        <button onClick={onClose} style={{fontSize:12,color:T.txt2,cursor:"pointer",background:"none",border:"none"}}>✕</button>
-      </div>
-      <input ref={ref} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files?.[0]&&onUpload(e.target.files[0])}/>
-      <div style={{display:"flex",gap:7}}>
-        <button onClick={()=>ref.current?.click()} style={{flex:1,background:T.red,borderRadius:7,padding:"8px",color:"#fff",fontWeight:600,fontSize:12,border:"none",cursor:"pointer"}}>Foto wählen</button>
-        {m.photo&&<button onClick={onRemove} style={{flex:1,background:T.redT,border:`1px solid ${T.redB}`,borderRadius:7,padding:"8px",color:T.red,fontWeight:600,fontSize:12,cursor:"pointer"}}>Entfernen</button>}
-      </div>
-    </div>
-  );
-}
-
 function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCommentChange, onComment, onDelete }:
   { post:any, gm:(id:string)=>UIMember|undefined, active:string, expanded:boolean, onExpand:()=>void, onRead:()=>void, comment:string, onCommentChange:(s:string)=>void, onComment:()=>void, onDelete?:()=>void }) {
   const mem  = gm(post.memberId);
@@ -328,6 +319,8 @@ function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCom
 function FamilyApp() {
   const router = useRouter();
   const pushSetupDoneRef = useRef(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
+  const avatarUploadMemberIdRef = useRef<string | null>(null);
   const [tab, setTab] = useState("dashboard");
   const [familyId, setFamilyId] = useState<string | null>(null);
   const [members, setMembers] = useState<UIMember[]>([]);
@@ -347,7 +340,6 @@ function FamilyApp() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [currentMember, setCurrentMember] = useState("");
-  const [editPhoto, setEditPhoto] = useState<string | null>(null);
   const [addEventModal, setAddEventModal] = useState(false);
   const [newEvent, setNewEvent] = useState({
     title: "",
@@ -748,15 +740,59 @@ function FamilyApp() {
   };
 
   const uploadPhoto = async (memberId: string, file: File) => {
-    const r = new FileReader();
-    r.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
-      const { error } = await supabase.from("members").update({ photo_url: dataUrl }).eq("id", memberId);
-      if (error) return;
-      setMembers((p) => p.map((m) => (m.id === memberId ? { ...m, photo: dataUrl } : m)));
-      setEditPhoto(null);
-    };
-    r.readAsDataURL(file);
+    if (!file.type.startsWith("image/")) return;
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    const allowed = ["jpg", "jpeg", "png", "gif", "webp"];
+    const safeExt = allowed.includes(ext) ? ext : "jpg";
+    const path = `${memberId}/${Date.now()}_${Math.random().toString(36).slice(2, 9)}.${safeExt}`;
+
+    const prevUrl = members.find((m) => m.id === memberId)?.photo;
+    const prevPath = extractAvatarsStoragePath(prevUrl);
+    if (prevPath) {
+      await supabase.storage.from("avatars").remove([prevPath]);
+    }
+
+    const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "image/jpeg",
+    });
+    if (upErr) return;
+
+    const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+    const publicUrl = pub.publicUrl;
+
+    const { error } = await supabase.from("members").update({ photo_url: publicUrl }).eq("id", memberId);
+    if (error) {
+      await supabase.storage.from("avatars").remove([path]);
+      return;
+    }
+    setMembers((p) => p.map((m) => (m.id === memberId ? { ...m, photo: publicUrl } : m)));
+  };
+
+  const removeMemberPhoto = async (memberId: string) => {
+    const prevUrl = members.find((m) => m.id === memberId)?.photo;
+    const prevPath = extractAvatarsStoragePath(prevUrl);
+    if (prevPath) {
+      await supabase.storage.from("avatars").remove([prevPath]);
+    }
+    const { error } = await supabase.from("members").update({ photo_url: null }).eq("id", memberId);
+    if (error) return;
+    setMembers((p) => p.map((x) => (x.id === memberId ? { ...x, photo: null } : x)));
+  };
+
+  const openMemberAvatarPicker = (memberId: string) => {
+    avatarUploadMemberIdRef.current = memberId;
+    avatarFileRef.current?.click();
+  };
+
+  const handleMemberAvatarFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const memberId = avatarUploadMemberIdRef.current;
+    avatarUploadMemberIdRef.current = null;
+    e.target.value = "";
+    if (!file || !memberId) return;
+    await uploadPhoto(memberId, file);
   };
 
   const submitEvent = async (memberId?: string) => {
@@ -1062,6 +1098,14 @@ function FamilyApp() {
         @keyframes storyFade{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:scale(1)}}
         .story-fade{animation:storyFade .3s ease}
       `}</style>
+
+      <input
+        ref={avatarFileRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleMemberAvatarFile}
+      />
 
       {/* HEADER */}
       <header style={{background:T.bg1,borderBottom:`1px solid ${T.line}`,position:"sticky",top:0,zIndex:50}}>
@@ -1522,14 +1566,60 @@ function FamilyApp() {
                 <div style={{padding:"16px 16px 14px",display:"flex",gap:13,alignItems:"center"}}>
                   <div style={{position:"relative"}}>
                     <Av m={m} s={52}/>
-                    <button className="r" onClick={()=>setEditPhoto(editPhoto===m.id?null:m.id)} style={{position:"absolute",bottom:-1,right:-1,width:19,height:19,borderRadius:"50%",background:T.bg3,border:`1.5px solid ${T.line2}`,fontSize:9,display:"flex",alignItems:"center",justifyContent:"center",color:T.txt1}}>✎</button>
+                    <button
+                      type="button"
+                      className="r"
+                      onClick={() => openMemberAvatarPicker(m.id)}
+                      aria-label="Profilfoto hochladen"
+                      title="Profilfoto hochladen"
+                      style={{
+                        position: "absolute",
+                        bottom: -2,
+                        right: -2,
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        background: T.bg3,
+                        border: `1.5px solid ${T.line2}`,
+                        fontSize: 14,
+                        lineHeight: 1,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: T.txt1,
+                      }}
+                    >
+                      📷
+                    </button>
                   </div>
-                  <div style={{flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.txt0}}>{m.name}</div><div style={{fontSize:11,color:T.txt2,marginTop:1}}>{m.role}</div></div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:15,fontWeight:700,color:T.txt0}}>{m.name}</div>
+                    <div style={{fontSize:11,color:T.txt2,marginTop:1}}>{m.role}</div>
+                    {m.photo ? (
+                      <button
+                        type="button"
+                        className="r"
+                        onClick={() => void removeMemberPhoto(m.id)}
+                        style={{
+                          marginTop: 6,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: T.txt2,
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          textDecoration: "underline",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Foto entfernen
+                      </button>
+                    ) : null}
+                  </div>
                   <button className="r" onClick={()=>setCurrentMember(m.id)} style={{background:isActive?m.color:T.bg3,border:`1px solid ${isActive?m.color:T.line2}`,borderRadius:7,padding:"6px 13px",fontSize:11,fontWeight:600,color:isActive?"#fff":T.txt1}}>
                     {isActive?"✓ Aktiv":"Wählen"}
                   </button>
                 </div>
-                {editPhoto===m.id&&<PhotoPanel m={m} onUpload={f=>uploadPhoto(m.id,f)} onRemove={async()=>{const { error } = await supabase.from("members").update({ photo_url: null }).eq("id", m.id);if(error)return;setMembers(p=>p.map(x=>x.id===m.id?{...x,photo:null}:x));setEditPhoto(null);}} onClose={()=>setEditPhoto(null)}/>}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:1,background:T.line}}>
                   {[["Posts",myPosts.length],["Gelesen",reads],["Termine",(memberEvents[m.id]||[]).length]].map(([l,v])=>(
                     <div key={String(l)} style={{background:T.bg2,padding:"11px 6px",textAlign:"center"}}>
