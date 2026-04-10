@@ -1182,6 +1182,7 @@ function FamilyApp() {
         const shown=shopFilter==="open"?open:shopFilter==="done"?done:shopItems;
         const CAT_OPTS=["🛒","🥛","🍞","🥩","🐟","🧀","🥚","🍎","🥦","🍝","🧃","🧹","🧴","💊","🐾"];
         const addShopItem = async () => {
+          console.log("addShopItem called", { familyId, currentMember, newItem });
           if (!newItem.text.trim() || !familyId || !currentMember) return;
           const { data: inserted, error } = await supabase
             .from("shop_items")
@@ -1195,7 +1196,10 @@ function FamilyApp() {
             })
             .select("id, text, qty, done, member_id, cat")
             .maybeSingle();
-          if (error) return;
+          if (error) {
+            console.error("Shop item error:", error);
+            return;
+          }
           if (!inserted) return;
           setShopItems((p) => [
             ...p,
