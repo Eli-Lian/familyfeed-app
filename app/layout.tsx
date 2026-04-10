@@ -10,7 +10,17 @@ const dmSans = DM_Sans({
 
 export const metadata: Metadata = {
   title: "DoFam",
-  description: "DoFam - Die App für deine Familie",
+  description: "Deine Familie. Dein Ort.",
+  manifest: "/manifest.json",
+  themeColor: "#C8522A",
+  appleWebApp: {
+    capable: true,
+    title: "DoFam",
+    statusBarStyle: "default",
+  },
+  icons: {
+    apple: "/icon-192.png",
+  },
 };
 
 export default function RootLayout({
@@ -20,7 +30,20 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="de" className={`${dmSans.variable} h-full antialiased`}>
-      <body className={`${dmSans.className} min-h-full flex flex-col`}>{children}</body>
+      <body className={`${dmSans.className} min-h-full flex flex-col`}>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/sw.js');
+    });
+  }
+`,
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }
