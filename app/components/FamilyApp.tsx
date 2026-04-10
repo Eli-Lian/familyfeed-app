@@ -250,13 +250,44 @@ function PhotoPanel({ m, onUpload, onRemove, onClose }: { m:any, onUpload:(f:Fil
   );
 }
 
-function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCommentChange, onComment }:
-  { post:any, gm:(id:string)=>UIMember|undefined, active:string, expanded:boolean, onExpand:()=>void, onRead:()=>void, comment:string, onCommentChange:(s:string)=>void, onComment:()=>void }) {
+function PostCard({ post, gm, active, expanded, onExpand, onRead, comment, onCommentChange, onComment, onDelete }:
+  { post:any, gm:(id:string)=>UIMember|undefined, active:string, expanded:boolean, onExpand:()=>void, onRead:()=>void, comment:string, onCommentChange:(s:string)=>void, onComment:()=>void, onDelete?:()=>void }) {
   const mem  = gm(post.memberId);
   const read = post.reads.includes(active);
   const tc   = TYPE[post.type];
   return (
-    <div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,overflow:"hidden"}}>
+    <div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,overflow:"hidden",position:"relative"}}>
+      {onDelete ? (
+        <button
+          type="button"
+          className="r"
+          onClick={() => {
+            if (window.confirm("Post wirklich löschen?")) onDelete();
+          }}
+          aria-label="Post löschen"
+          style={{
+            position: "absolute",
+            top: post.pinned ? 30 : 8,
+            right: 8,
+            zIndex: 2,
+            width: 28,
+            height: 28,
+            borderRadius: "50%",
+            background: T.bg3,
+            border: `1px solid ${T.line}`,
+            color: T.txt2,
+            fontSize: 14,
+            lineHeight: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          ✕
+        </button>
+      ) : null}
       {post.pinned&&<div style={{background:T.redT,borderBottom:`1px solid ${T.redB}`,padding:"4px 13px",display:"flex",gap:4,alignItems:"center"}}><span style={{fontSize:9,color:T.red}}>▲</span><span style={{fontSize:9,color:T.red,fontWeight:700,letterSpacing:0.5,textTransform:"uppercase"}}>Angepinnt</span></div>}
       <div style={{display:"flex",gap:9,padding:"12px 13px 9px",alignItems:"center"}}>
         <Av m={mem} s={38}/>
@@ -649,6 +680,13 @@ function FamilyApp() {
       )
     );
     setComment("");
+  };
+
+  const deletePost = async (postId: string) => {
+    const { error } = await supabase.from("posts").delete().eq("id", postId);
+    if (error) return;
+    setPosts((p) => p.filter((x) => x.id !== postId));
+    setExpanded((ex) => (ex === postId ? null : ex));
   };
 
   const submitPost = async () => {
@@ -1266,7 +1304,8 @@ function FamilyApp() {
               onRead={()=>toggleRead(post.id)}
               comment={expanded===post.id?comment:""}
               onCommentChange={setComment}
-              onComment={()=>addComment(post.id)}/>
+              onComment={()=>addComment(post.id)}
+              onDelete={post.memberId===currentMember ? () => void deletePost(post.id) : undefined}/>
           ))}
           <div style={{height:40}}/>
         </div>
