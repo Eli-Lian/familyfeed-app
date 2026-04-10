@@ -854,7 +854,17 @@ function FamilyApp() {
   }
 
   return (
-    <div style={{fontFamily:"'DM Sans',sans-serif",background:T.bg0,minHeight:"100vh",maxWidth:430,margin:"0 auto",color:T.txt0}}>
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 430,
+        margin: "0 auto",
+        fontFamily: "'DM Sans',sans-serif",
+        background: T.bg0,
+        minHeight: "100vh",
+        color: T.txt0,
+      }}
+    >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
@@ -985,7 +995,7 @@ function FamilyApp() {
 
       {/* DASHBOARD */}
       {tab==="dashboard"&&(
-        <div style={{padding:"12px 12px 0"}}>
+        <div style={{ width: "100%", padding: "12px 12px 0" }}>
           <div style={{background:`linear-gradient(135deg,#FFF8F0,#FFF2E5)`,border:`1px solid ${T.line}`,borderRadius:14,padding:"16px 18px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",overflow:"hidden",position:"relative"}}>
             <div style={{position:"absolute",top:-30,right:-30,width:110,height:110,borderRadius:"50%",background:T.red,opacity:0.08}}/>
             <div style={{position:"absolute",bottom:-20,left:-20,width:70,height:70,borderRadius:"50%",background:T.amber,opacity:0.07}}/>
@@ -1077,7 +1087,7 @@ function FamilyApp() {
 
       {/* FEED */}
       {tab==="feed"&&(
-        <div style={{padding:"12px 12px",display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{ width: "100%", padding: "12px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
             {members.map(m=>(
               <button key={m.id} className="r" onClick={()=>setCurrentMember(m.id)} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:8,background:currentMember===m.id?m.color+"18":T.bg2,border:`1px solid ${currentMember===m.id?m.color+"44":T.line}`,whiteSpace:"nowrap"}}>
@@ -1117,8 +1127,8 @@ function FamilyApp() {
         const selLabel=new Date(calSelected).toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"});
         const DAY_LABELS=["Mo","Di","Mi","Do","Fr","Sa","So"];
         return (
-          <div style={{padding:"12px 12px",display:"flex",flexDirection:"column",gap:12}}>
-            <div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"12px 16px"}}>
+          <div style={{ width: "100%", padding: "12px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"12px 16px",width:"100%",boxSizing:"border-box"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
                 <button className="r" onClick={()=>setCalMonth(new Date(y,mo-1,1))} style={{width:34,height:34,borderRadius:9,background:T.bg3,border:`1px solid ${T.line2}`,fontSize:16,color:T.txt1,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
                 <div style={{fontWeight:700,fontSize:15,color:T.txt0}}>{monthName}</div>
@@ -1142,9 +1152,9 @@ function FamilyApp() {
                 })}
               </div>
             </div>
-            <div>
+            <div style={{ width: "100%", minWidth: 0 }}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div style={{fontSize:13,fontWeight:700,color:T.txt0}}>{selLabel}</div>
                   <div style={{fontSize:10,color:T.txt2,marginTop:1}}>{selEvs.length===0?"Keine Termine":`${selEvs.length} Termin${selEvs.length>1?"e":""}`}</div>
                 </div>
@@ -1229,7 +1239,7 @@ function FamilyApp() {
           setShopItems(p=>p.filter((x:any)=>x.id!==id));
         };
         return (
-          <div style={{padding:"12px 12px",display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{ width: "100%", padding: "12px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"14px 16px",display:"flex"}}>
               {[["Offen",open.length,T.red],["Erledigt",done.length,T.green],["Gesamt",shopItems.length,T.txt0]].map(([l,v,c],i,arr)=>(
                 <div key={String(l)} style={{flex:1,textAlign:"center",borderRight:i<arr.length-1?`1px solid ${T.line}`:"none"}}>
@@ -1294,7 +1304,7 @@ function FamilyApp() {
 
       {/* FAMILIE */}
       {tab==="members"&&(
-        <div style={{padding:"12px 12px",display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{ width: "100%", padding: "12px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
           {members.map(m=>{
             const myPosts=posts.filter((p:any)=>p.memberId===m.id);
             const reads=myPosts.reduce((s:number,p:any)=>s+p.reads.length,0);
