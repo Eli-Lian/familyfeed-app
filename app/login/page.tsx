@@ -23,9 +23,13 @@ function toGermanAuthError(message: string): string {
   return m;
 }
 
+const PASSWORD_RESET_REDIRECT = "https://familyfeed-app.vercel.app/reset-password";
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [authView, setAuthView] = useState<"main" | "forgot">("main");
+  const [resetEmailSent, setResetEmailSent] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -97,10 +101,38 @@ export default function LoginPage() {
 
   function switchMode(next: "login" | "register") {
     setMode(next);
+    setAuthView("main");
+    setResetEmailSent(false);
     setError(null);
     if (next === "login") {
       setConfirmPassword("");
     }
+  }
+
+  async function handleForgotSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError("Bitte gib deine E-Mail-Adresse ein.");
+      return;
+    }
+    setLoading(true);
+    const { error: resetErr } = await supabase.auth.resetPasswordForEmail(trimmed, {
+      redirectTo: PASSWORD_RESET_REDIRECT,
+    });
+    setLoading(false);
+    if (resetErr) {
+      setError(toGermanAuthError(resetErr.message));
+      return;
+    }
+    setResetEmailSent(true);
+  }
+
+  function backToLogin() {
+    setAuthView("main");
+    setResetEmailSent(false);
+    setError(null);
   }
 
   return (
@@ -125,125 +157,214 @@ export default function LoginPage() {
           </p>
         </header>
 
-        <div
-          className="mb-6 flex rounded-xl border border-black/10 p-1"
-          style={{ backgroundColor: "rgba(255,255,255,0.65)" }}
-          role="tablist"
-          aria-label="Anmeldung oder Registrierung"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "login"}
-            className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition"
-            style={{
-              backgroundColor: mode === "login" ? RED : "transparent",
-              color: mode === "login" ? "#fff" : TXT_MUTED,
-            }}
-            onClick={() => switchMode("login")}
-          >
-            Anmelden
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "register"}
-            className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition"
-            style={{
-              backgroundColor: mode === "register" ? RED : "transparent",
-              color: mode === "register" ? "#fff" : TXT_MUTED,
-            }}
-            onClick={() => switchMode("register")}
-          >
-            Registrieren
-          </button>
-        </div>
+        {authView === "main" ? (
+          <>
+            <div
+              className="mb-6 flex rounded-xl border border-black/10 p-1"
+              style={{ backgroundColor: "rgba(255,255,255,0.65)" }}
+              role="tablist"
+              aria-label="Anmeldung oder Registrierung"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "login"}
+                className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition"
+                style={{
+                  backgroundColor: mode === "login" ? RED : "transparent",
+                  color: mode === "login" ? "#fff" : TXT_MUTED,
+                }}
+                onClick={() => switchMode("login")}
+              >
+                Anmelden
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "register"}
+                className="flex-1 rounded-lg py-2.5 text-sm font-semibold transition"
+                style={{
+                  backgroundColor: mode === "register" ? RED : "transparent",
+                  color: mode === "register" ? "#fff" : TXT_MUTED,
+                }}
+                onClick={() => switchMode("register")}
+              >
+                Registrieren
+              </button>
+            </div>
 
-        <form
-          onSubmit={mode === "login" ? handleLogin : handleRegister}
-          className="space-y-4 rounded-2xl border border-black/10 bg-white/85 p-6 shadow-sm backdrop-blur"
-        >
-          <div>
-            <label
-              htmlFor="auth-email"
-              className="mb-2 block text-xs font-semibold uppercase tracking-wide"
-              style={{ color: TXT_MUTED }}
+            <form
+              onSubmit={mode === "login" ? handleLogin : handleRegister}
+              className="space-y-4 rounded-2xl border border-black/10 bg-white/85 p-6 shadow-sm backdrop-blur"
             >
-              E-Mail
-            </label>
-            <input
-              id="auth-email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="du@beispiel.ch"
-              className={inputClass}
-              disabled={loading}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="auth-password"
-              className="mb-2 block text-xs font-semibold uppercase tracking-wide"
-              style={{ color: TXT_MUTED }}
+              <div>
+                <label
+                  htmlFor="auth-email"
+                  className="mb-2 block text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: TXT_MUTED }}
+                >
+                  E-Mail
+                </label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="du@beispiel.ch"
+                  className={inputClass}
+                  disabled={loading}
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="auth-password"
+                  className="mb-2 block text-xs font-semibold uppercase tracking-wide"
+                  style={{ color: TXT_MUTED }}
+                >
+                  Passwort
+                </label>
+                <input
+                  id="auth-password"
+                  type="password"
+                  autoComplete={mode === "login" ? "current-password" : "new-password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={mode === "register" ? "Mindestens 6 Zeichen" : "••••••••"}
+                  className={inputClass}
+                  disabled={loading}
+                />
+                {mode === "login" ? (
+                  <div className="mt-2 text-right">
+                    <button
+                      type="button"
+                      className="text-xs font-semibold underline decoration-[#C8522A]/40 underline-offset-2"
+                      style={{ color: RED }}
+                      onClick={() => {
+                        setAuthView("forgot");
+                        setError(null);
+                        setResetEmailSent(false);
+                      }}
+                    >
+                      Passwort vergessen?
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              {mode === "register" ? (
+                <div>
+                  <label
+                    htmlFor="auth-confirm"
+                    className="mb-2 block text-xs font-semibold uppercase tracking-wide"
+                    style={{ color: TXT_MUTED }}
+                  >
+                    Passwort bestätigen
+                  </label>
+                  <input
+                    id="auth-confirm"
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Passwort wiederholen"
+                    className={inputClass}
+                    disabled={loading}
+                  />
+                </div>
+              ) : null}
+
+              {error ? (
+                <p className="text-sm" style={{ color: RED }} role="alert">
+                  {error}
+                </p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-xl py-3.5 text-sm font-semibold text-white shadow-md transition hover:opacity-95 disabled:opacity-60"
+                style={{ backgroundColor: RED }}
+              >
+                {loading
+                  ? mode === "login"
+                    ? "Anmeldung…"
+                    : "Wird erstellt…"
+                  : mode === "login"
+                    ? "Anmelden"
+                    : "Konto erstellen"}
+              </button>
+            </form>
+          </>
+        ) : resetEmailSent ? (
+          <div
+            className="space-y-4 rounded-2xl border border-black/10 bg-white/85 p-6 shadow-sm backdrop-blur"
+            style={{ borderColor: "rgba(200, 82, 42, 0.25)" }}
+          >
+            <h2 className="text-center text-base font-semibold" style={{ color: TXT }}>
+              Passwort zurücksetzen
+            </h2>
+            <p className="text-center text-sm leading-relaxed" style={{ color: TXT }}>
+              Wir haben dir einen Link geschickt! Prüfe deine E-Mails.
+            </p>
+            <button
+              type="button"
+              className="w-full text-center text-sm font-semibold underline decoration-[#C8522A]/40 underline-offset-2"
+              style={{ color: RED }}
+              onClick={backToLogin}
             >
-              Passwort
-            </label>
-            <input
-              id="auth-password"
-              type="password"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === "register" ? "Mindestens 6 Zeichen" : "••••••••"}
-              className={inputClass}
-              disabled={loading}
-            />
+              Zurück zum Login
+            </button>
           </div>
-          {mode === "register" ? (
+        ) : (
+          <form
+            onSubmit={handleForgotSubmit}
+            className="space-y-4 rounded-2xl border border-black/10 bg-white/85 p-6 shadow-sm backdrop-blur"
+          >
+            <h2 className="text-center text-base font-semibold" style={{ color: TXT }}>
+              Passwort zurücksetzen
+            </h2>
             <div>
               <label
-                htmlFor="auth-confirm"
+                htmlFor="forgot-email"
                 className="mb-2 block text-xs font-semibold uppercase tracking-wide"
                 style={{ color: TXT_MUTED }}
               >
-                Passwort bestätigen
+                E-Mail
               </label>
               <input
-                id="auth-confirm"
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Passwort wiederholen"
+                id="forgot-email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="du@beispiel.ch"
                 className={inputClass}
                 disabled={loading}
               />
             </div>
-          ) : null}
-
-          {error ? (
-            <p className="text-sm" style={{ color: RED }} role="alert">
-              {error}
-            </p>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl py-3.5 text-sm font-semibold text-white shadow-md transition hover:opacity-95 disabled:opacity-60"
-            style={{ backgroundColor: RED }}
-          >
-            {loading
-              ? mode === "login"
-                ? "Anmeldung…"
-                : "Wird erstellt…"
-              : mode === "login"
-                ? "Anmelden"
-                : "Konto erstellen"}
-          </button>
-        </form>
+            {error ? (
+              <p className="text-sm" style={{ color: RED }} role="alert">
+                {error}
+              </p>
+            ) : null}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl py-3.5 text-sm font-semibold text-white shadow-md transition hover:opacity-95 disabled:opacity-60"
+              style={{ backgroundColor: RED }}
+            >
+              {loading ? "Wird gesendet…" : "Link senden"}
+            </button>
+            <button
+              type="button"
+              className="w-full text-center text-sm font-semibold underline decoration-[#C8522A]/40 underline-offset-2"
+              style={{ color: RED }}
+              onClick={backToLogin}
+            >
+              Zurück zum Login
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
