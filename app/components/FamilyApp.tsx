@@ -970,6 +970,29 @@ function FamilyApp() {
             <button
               type="button"
               className="r"
+              onClick={() => window.location.reload()}
+              aria-label="Aktualisieren"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                background: T.bg3,
+                border: `1px solid ${T.line}`,
+                fontSize: 20,
+                color: T.txt1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                lineHeight: 1,
+                padding: 0,
+              }}
+            >
+              ↻
+            </button>
+            <button
+              type="button"
+              className="r"
               onClick={async () => {
                 const {
                   data: { user },
