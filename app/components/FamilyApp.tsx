@@ -588,7 +588,9 @@ function FamilyApp() {
   const submitEvent = async (memberId?: string) => {
     const targetId = memberId || newEvent.forMemberId;
     if (!newEvent.title.trim() || !targetId || !currentMember) return;
-    const iso = parseEventDate(newEvent.date);
+    const d = newEvent.date?.trim() ?? "";
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : parseEventDate(d);
+    if (!iso) return;
     const timeVal = newEvent.time?.trim() || null;
     const { data, error } = await supabase
       .from("member_events")
@@ -1146,7 +1148,7 @@ function FamilyApp() {
                   <div style={{fontSize:13,fontWeight:700,color:T.txt0}}>{selLabel}</div>
                   <div style={{fontSize:10,color:T.txt2,marginTop:1}}>{selEvs.length===0?"Keine Termine":`${selEvs.length} Termin${selEvs.length>1?"e":""}`}</div>
                 </div>
-                <button className="r" onClick={()=>{const d=new Date(calSelected);const label=d.toLocaleDateString("de-DE",{weekday:"short",day:"numeric",month:"short"});setNewEvent({title:"",date:label,time:"",icon:"📅",forMemberId:members[0].id});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12}}>+ Termin</button>
+                <button className="r" onClick={()=>{setNewEvent({title:"",date:calSelected,time:"",icon:"📅",forMemberId:members[0].id});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12}}>+ Termin</button>
               </div>
               {selEvs.length===0
                 ?<div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"28px 16px",textAlign:"center"}}><div style={{fontSize:28,marginBottom:8}}>📅</div><div style={{fontSize:14,color:T.txt2}}>Kein Termin an diesem Tag</div></div>
@@ -1644,11 +1646,39 @@ function FamilyApp() {
                 <div style={{display:"flex",gap:10}}>
                   <div style={{flex:1}}>
                     <SLabel>Datum</SLabel>
-                    <input value={newEvent.date} onChange={e=>setNewEvent(p=>({...p,date:e.target.value}))} placeholder="z.B. Mo, 14. Apr" style={{width:"100%",background:T.bg3,border:`1px solid ${T.line2}`,borderRadius:10,padding:"11px 13px",fontSize:13,color:T.txt0}}/>
+                    <input
+                      type="date"
+                      value={newEvent.date}
+                      onChange={(e) => setNewEvent((p) => ({ ...p, date: e.target.value }))}
+                      style={{
+                        width: "100%",
+                        background: "#EAE2D6",
+                        border: "1px solid #C9BFB0",
+                        borderRadius: 10,
+                        padding: "11px 13px",
+                        fontSize: 13,
+                        color: "#2C1F14",
+                        fontFamily: "inherit",
+                      }}
+                    />
                   </div>
-                  <div style={{width:100}}>
+                  <div style={{ width: 128, flexShrink: 0 }}>
                     <SLabel>Uhrzeit</SLabel>
-                    <input value={newEvent.time} onChange={e=>setNewEvent(p=>({...p,time:e.target.value}))} placeholder="10:30" style={{width:"100%",background:T.bg3,border:`1px solid ${T.line2}`,borderRadius:10,padding:"11px 13px",fontSize:13,color:T.txt0}}/>
+                    <input
+                      type="time"
+                      value={newEvent.time}
+                      onChange={(e) => setNewEvent((p) => ({ ...p, time: e.target.value }))}
+                      style={{
+                        width: "100%",
+                        background: "#EAE2D6",
+                        border: "1px solid #C9BFB0",
+                        borderRadius: 10,
+                        padding: "11px 13px",
+                        fontSize: 13,
+                        color: "#2C1F14",
+                        fontFamily: "inherit",
+                      }}
+                    />
                   </div>
                 </div>
                 <div style={{background:T.bg2,borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:8}}>
