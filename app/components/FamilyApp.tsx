@@ -91,6 +91,62 @@ function formatDbTime(t: string | null | undefined): string {
   return s.length >= 5 ? s.slice(0, 5) : s;
 }
 
+function minIso(a: string, b: string): string {
+  return compareIso(a, b) <= 0 ? a : b;
+}
+
+function formatShortDeDate(iso: string): string {
+  const d = new Date(iso + "T12:00:00");
+  return d.toLocaleDateString("de-DE", { day: "numeric", month: "short" });
+}
+
+/** Time segment for dashboard/calendar (Einzel / Mehrtägig / Ganztägig). */
+function buildEventScheduleSubtitle(ev: {
+  isoDate: string | null;
+  endIsoDate?: string | null;
+  startTimeStr?: string | null;
+  endTimeStr?: string | null;
+  time?: string;
+}): string {
+  const sDate = ev.isoDate;
+  const eDate = ev.endIsoDate || null;
+  const st = ev.startTimeStr ?? (ev.time && ev.time !== "–" ? ev.time : null);
+  const et = ev.endTimeStr ?? null;
+  if (eDate && sDate && eDate !== sDate) {
+    return `${formatShortDeDate(sDate)} - ${formatShortDeDate(eDate)}`;
+  }
+  if (!st) {
+    return "Ganztägig";
+  }
+  if (et && et !== "–") {
+    return `${st} - ${et} Uhr`;
+  }
+  return `${st} Uhr`;
+}
+
+function normalizeTimeFromRow(t: string | null | undefined): string | null {
+  if (t == null || t === "") return null;
+  const f = formatDbTime(t);
+  return f === "–" ? null : f;
+}
+
+function eventOccursOnDay(
+  iso: string,
+  ev: { isoDate: string | null; endIsoDate?: string | null; recurrence: EventRecurrence }
+): boolean {
+  if (!ev.isoDate) return false;
+  const rec = normalizeRecurrence(ev.recurrence);
+  const end =
+    ev.endIsoDate && compareIso(ev.endIsoDate, ev.isoDate) > 0 ? ev.endIsoDate : null;
+  if (rec === "none") {
+    if (end) {
+      return compareIso(iso, ev.isoDate) >= 0 && compareIso(iso, end) <= 0;
+    }
+    return iso === ev.isoDate;
+  }
+  return eventOccursOn(iso, ev.isoDate, rec);
+}
+
 /** Path inside bucket `avatars` from a Supabase public object URL, or null. */
 function extractAvatarsStoragePath(photoUrl: string | null | undefined): string | null {
   if (!photoUrl || !photoUrl.includes("/object/public/avatars/")) return null;
@@ -156,7 +212,12 @@ function expandMemberUpcomingOccurrences(raw: any[], fromIso: string): any[] {
     if (!anchor) continue;
     const rec = normalizeRecurrence(ev.recurrence);
     if (rec === "none") {
-      if (compareIso(anchor, fromIso) >= 0 && compareIso(anchor, endIso) <= 0) {
+      const spanEnd =
+        ev.endIsoDate && compareIso(ev.endIsoDate, anchor) > 0 ? ev.endIsoDate : anchor;
+      if (compareIso(spanEnd, fromIso) < 0 || compareIso(anchor, endIso) > 0) continue;
+      const overlapStart = maxIso(fromIso, anchor);
+      const overlapEnd = minIso(spanEnd, endIso);
+      if (compareIso(overlapStart, overlapEnd) <= 0) {
         out.push({ ...ev, occurrenceIso: anchor, date: formatEventDateLabel(anchor) });
       }
       continue;
@@ -171,7 +232,10 @@ function expandMemberUpcomingOccurrences(raw: any[], fromIso: string): any[] {
   }
   out.sort(
     (a, b) =>
-      compareIso(a.occurrenceIso, b.occurrenceIso) || String(a.time).localeCompare(String(b.time))
+      compareIso(a.occurrenceIso, b.occurrenceIso) ||
+      String((a as any).startTimeStr || a.time || "00:00").localeCompare(
+        String((b as any).startTimeStr || b.time || "00:00")
+      )
   );
   return out;
 }
@@ -351,11 +415,13 @@ function FamilyApp() {
   const [addEventModal, setAddEventModal] = useState(false);
   const [newEvent, setNewEvent] = useState({
     title: "",
-    date: "",
-    time: "",
     icon: "📅",
     forMemberId: "",
     recurrence: "none" as EventRecurrence,
+    startDate: "",
+    startTime: "",
+    endDate: "",
+    endTime: "",
   });
   const [shopItems, setShopItems] = useState<any[]>([]);
   const [newItem, setNewItem] = useState({ text: "", qty: "", cat: "🛒" });
@@ -568,17 +634,28 @@ function FamilyApp() {
     const evMap: Record<string, any[]> = {};
     for (const m of memberIds) evMap[m] = [];
     for (const row of evRows || []) {
-      const iso = row.date ? String(row.date).slice(0, 10) : null;
+      const startIso = row.start_date
+        ? String(row.start_date).slice(0, 10)
+        : row.date
+          ? String(row.date).slice(0, 10)
+          : null;
+      const endIso = row.end_date ? String(row.end_date).slice(0, 10) : null;
       const rec = normalizeRecurrence(row.recurrence);
+      const startTimeStr = normalizeTimeFromRow(row.start_time ?? row.time);
+      const endTimeStr = normalizeTimeFromRow(row.end_time);
+      const legacyTime = formatDbTime(row.time);
       const ui = {
         id: row.id,
         title: row.title,
-        date: formatEventDateLabel(iso),
-        time: formatDbTime(row.time),
+        date: formatEventDateLabel(startIso),
+        time: legacyTime,
+        startTimeStr,
+        endTimeStr,
         icon: row.icon || "📅",
         urgent: !!row.urgent,
         addedBy: row.added_by || undefined,
-        isoDate: iso,
+        isoDate: startIso,
+        endIsoDate: endIso,
         recurrence: rec,
       };
       if (!evMap[row.member_id]) evMap[row.member_id] = [];
@@ -974,18 +1051,26 @@ function FamilyApp() {
   const submitEvent = async (memberId?: string) => {
     const targetId = memberId || newEvent.forMemberId;
     if (!newEvent.title.trim() || !targetId || !currentMember) return;
-    const d = newEvent.date?.trim() ?? "";
-    const iso = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : parseEventDate(d);
-    if (!iso) return;
-    const timeVal = newEvent.time?.trim() || null;
+    const startIso = newEvent.startDate?.trim() ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startIso)) return;
+    const endRaw = newEvent.endDate?.trim() ?? "";
+    const endIso =
+      endRaw && /^\d{4}-\d{2}-\d{2}$/.test(endRaw) ? endRaw : null;
+    if (endIso && compareIso(endIso, startIso) < 0) return;
+    const startTimeVal = newEvent.startTime?.trim() || null;
+    const endTimeVal = newEvent.endTime?.trim() || null;
     const rec = normalizeRecurrence(newEvent.recurrence);
     const { data, error } = await supabase
       .from("member_events")
       .insert({
         member_id: targetId,
         title: newEvent.title.trim(),
-        date: iso,
-        time: timeVal,
+        date: startIso,
+        time: startTimeVal,
+        start_date: startIso,
+        start_time: startTimeVal,
+        end_date: endIso,
+        end_time: endTimeVal,
         icon: newEvent.icon || "📅",
         urgent: false,
         added_by: currentMember,
@@ -995,23 +1080,42 @@ function FamilyApp() {
       .single();
     if (error || !data) return;
     const row = data;
-    const rowIso = row.date ? String(row.date).slice(0, 10) : null;
+    const rowStart = row.start_date
+      ? String(row.start_date).slice(0, 10)
+      : row.date
+        ? String(row.date).slice(0, 10)
+        : null;
+    const rowEnd = row.end_date ? String(row.end_date).slice(0, 10) : null;
+    const startTimeStr = normalizeTimeFromRow(row.start_time ?? row.time);
+    const endTimeStr = normalizeTimeFromRow(row.end_time);
     const ui = {
       id: row.id,
       title: row.title,
-      date: formatEventDateLabel(rowIso),
+      date: formatEventDateLabel(rowStart),
       time: formatDbTime(row.time),
+      startTimeStr,
+      endTimeStr,
       icon: row.icon || "📅",
       urgent: !!row.urgent,
       addedBy: row.added_by || undefined,
-      isoDate: rowIso,
+      isoDate: rowStart,
+      endIsoDate: rowEnd,
       recurrence: normalizeRecurrence(row.recurrence),
     };
     setMemberEvents((p) => ({
       ...p,
       [targetId]: [ui, ...(p[targetId] || [])],
     }));
-    setNewEvent({ title: "", date: "", time: "", icon: "📅", forMemberId: currentMember, recurrence: "none" });
+    setNewEvent({
+      title: "",
+      icon: "📅",
+      forMemberId: currentMember,
+      recurrence: "none",
+      startDate: "",
+      startTime: "",
+      endDate: "",
+      endTime: "",
+    });
     setAddEventModal(false);
   };
 
@@ -1460,12 +1564,12 @@ function FamilyApp() {
               <div style={{fontSize:10,color:T.txt2,marginTop:4,textTransform:"uppercase",letterSpacing:1,fontFamily:"monospace"}}>{dd}</div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
-              <button className="r" onClick={()=>{setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:members[0]?.id??currentMember,recurrence:"none"});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+              <button className="r" onClick={()=>{setNewEvent({title:"",icon:"📅",forMemberId:members[0]?.id??currentMember,recurrence:"none",startDate:"",startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
                 <span style={{fontSize:14}}>+</span> Termin
               </button>
               <div style={{textAlign:"right"}}>
                 <div style={{fontSize:10,color:T.txt2,fontWeight:600,textTransform:"uppercase",letterSpacing:0.8}}>Heute offen</div>
-                <div style={{fontSize:20,fontWeight:700,color:T.txt0}}>{Object.values(memberEvents).flat().filter((e:any)=>e.isoDate && eventOccursOn(TODAY_ISO, e.isoDate, normalizeRecurrence(e.recurrence))).length}</div>
+                <div style={{fontSize:20,fontWeight:700,color:T.txt0}}>{Object.values(memberEvents).flat().filter((e:any)=>e.isoDate && eventOccursOnDay(TODAY_ISO, e)).length}</div>
               </div>
             </div>
           </div>
@@ -1475,7 +1579,7 @@ function FamilyApp() {
             {members.map(m=>{
               const upcoming=expandMemberUpcomingOccurrences(memberEvents[m.id]||[],TODAY_ISO);
               const evs=upcoming.slice(0,3);
-              const todayCount=(memberEvents[m.id]||[]).filter((e:any)=>e.isoDate&&eventOccursOn(TODAY_ISO,e.isoDate,normalizeRecurrence(e.recurrence))).length;
+              const todayCount=(memberEvents[m.id]||[]).filter((e:any)=>e.isoDate&&eventOccursOnDay(TODAY_ISO,e)).length;
               return (
                 <div key={m.id} className="in" style={{background:m.color+"0D",border:`1.5px solid ${m.color}33`,borderRadius:14,overflow:"hidden",display:"flex",flexDirection:"column"}}>
                   <div style={{padding:"11px 12px 9px",background:m.color+"22",borderBottom:`1px solid ${m.color}33`,display:"flex",alignItems:"center",gap:8}}>
@@ -1486,7 +1590,7 @@ function FamilyApp() {
                         ?<div style={{fontSize:9,color:m.color,fontWeight:700,marginTop:1,textTransform:"uppercase",letterSpacing:0.5}}>{todayCount} heute</div>
                         :<div style={{fontSize:9,color:T.txt2,marginTop:1}}>Keine heute</div>}
                     </div>
-                    <button className="r" onClick={()=>{setNewEvent({title:"",date:"",time:"",icon:"📅",forMemberId:m.id,recurrence:"none"});setAddEventModal(true);}} style={{width:22,height:22,borderRadius:6,background:m.color+"22",border:`1px solid ${m.color}55`,color:m.color,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>+</button>
+                    <button className="r" onClick={()=>{setNewEvent({title:"",icon:"📅",forMemberId:m.id,recurrence:"none",startDate:"",startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{width:22,height:22,borderRadius:6,background:m.color+"22",border:`1px solid ${m.color}55`,color:m.color,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>+</button>
                   </div>
                   <div style={{flex:1,padding:"6px 0"}}>
                     {evs.length===0&&<div style={{padding:"12px",textAlign:"center",fontSize:11,color:T.txt2}}>Keine Termine</div>}
@@ -1498,7 +1602,7 @@ function FamilyApp() {
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontSize:12,fontWeight:ev.urgent?600:400,color:ev.urgent?T.txt0:T.txt1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</div>
                             <div style={{fontSize:9,color:ev.urgent?m.color:T.txt2,marginTop:1,fontFamily:"monospace",display:"flex",gap:4}}>
-                              <span>{ev.date} · {ev.time}</span>
+                              <span>{buildEventScheduleSubtitle(ev)}</span>
                               {addedBy&&(addedBy as any).id!==m.id&&<span style={{opacity:0.7}}>· von {(addedBy as any).avatar}</span>}
                             </div>
                           </div>
@@ -1601,7 +1705,7 @@ function FamilyApp() {
             recurrence:normalizeRecurrence(ev.recurrence),
           }))
         ).filter((e):e is typeof e & { isoDate: string }=>!!e.isoDate);
-        const eventsForDay=(iso:string)=>allEvs.filter(e=>eventOccursOn(iso,e.isoDate,e.recurrence));
+        const eventsForDay=(iso:string)=>allEvs.filter(e=>eventOccursOnDay(iso,e));
         const y=calMonth.getFullYear(),mo=calMonth.getMonth();
         const firstDay=new Date(y,mo,1),lastDay=new Date(y,mo+1,0);
         const startOffset=(firstDay.getDay()+6)%7;
@@ -1648,11 +1752,11 @@ function FamilyApp() {
                   <div style={{fontSize:13,fontWeight:700,color:T.txt0}}>{selLabel}</div>
                   <div style={{fontSize:10,color:T.txt2,marginTop:1}}>{selEvs.length===0?"Keine Termine":`${selEvs.length} Termin${selEvs.length>1?"e":""}`}</div>
                 </div>
-                <button className="r" onClick={()=>{setNewEvent({title:"",date:calSelected,time:"",icon:"📅",forMemberId:members[0].id,recurrence:"none"});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12}}>+ Termin</button>
+                <button className="r" onClick={()=>{setNewEvent({title:"",icon:"📅",forMemberId:members[0].id,recurrence:"none",startDate:calSelected,startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12}}>+ Termin</button>
               </div>
               {selEvs.length===0
                 ?<div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"28px 16px",textAlign:"center"}}><div style={{fontSize:28,marginBottom:8}}>📅</div><div style={{fontSize:14,color:T.txt2}}>Kein Termin an diesem Tag</div></div>
-                :<div style={{display:"flex",flexDirection:"column",gap:8}}>{selEvs.sort((a:any,b:any)=>a.time.localeCompare(b.time)).map((ev:any)=>{
+                :<div style={{display:"flex",flexDirection:"column",gap:8}}>{selEvs.sort((a:any,b:any)=>String(a.startTimeStr||a.time||"00:00").localeCompare(String(b.startTimeStr||b.time||"00:00"))).map((ev:any)=>{
                   const mem=members.find(m=>m.id===ev.memberId);
                   const addedBy=ev.addedBy?members.find(m=>m.id===ev.addedBy):null;
                   return (
@@ -1661,7 +1765,7 @@ function FamilyApp() {
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:14,fontWeight:600,color:T.txt0}}>{ev.title}</div>
                         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3,flexWrap:"wrap"}}>
-                          <span style={{fontSize:11,fontFamily:"monospace",color:T.txt2}}>{ev.time} Uhr</span>
+                          <span style={{fontSize:11,fontFamily:"monospace",color:T.txt2}}>{buildEventScheduleSubtitle(ev)}</span>
                           <Av m={mem} s={16}/>
                           <span style={{fontSize:11,color:mem?.color,fontWeight:600}}>{mem?.name}</span>
                           {addedBy&&(addedBy as any).id!==mem?.id&&<span style={{fontSize:10,color:T.txt2}}>· von {(addedBy as any).name}</span>}
@@ -2883,6 +2987,32 @@ function FamilyApp() {
       {addEventModal&&(()=>{
         const forM=gm(newEvent.forMemberId);
         const ICON_OPTS=["📅","🦷","💼","🏥","🎹","⚽","🎉","🚌","🏫","🏃","🔧","✈️","🎂","🎓","💉","🐾"];
+        const sd = newEvent.startDate.trim();
+        const ed = newEvent.endDate.trim();
+        const st = newEvent.startTime.trim();
+        const et = newEvent.endTime.trim();
+        let eventFormHint = "";
+        if (!sd) {
+          eventFormHint = "Startdatum wählen.";
+        } else if (ed && ed !== sd) {
+          eventFormHint = "Mehrtägig (z. B. Ferien)";
+        } else if (!st) {
+          eventFormHint = "Ganztägig";
+        } else if (st && et) {
+          eventFormHint = "Termin mit Von-Bis Zeit";
+        } else {
+          eventFormHint = "Einmaliger Termin";
+        }
+        const dateInputSx = {
+          width: "100%" as const,
+          background: "#EAE2D6",
+          border: "1px solid #C9BFB0",
+          borderRadius: 10,
+          padding: "11px 13px",
+          fontSize: 13,
+          color: "#2C1F14",
+          fontFamily: "inherit",
+        };
         return (
           <div className="dim" style={{position:"fixed",inset:0,background:"rgba(44,31,20,0.6)",zIndex:150,display:"flex",alignItems:"flex-end",maxWidth:430,margin:"0 auto"}}>
             <div className="slide" style={{background:T.bg1,borderRadius:"20px 20px 0 0",width:"100%",maxHeight:"90vh",overflowY:"auto",borderTop:`2px solid ${T.red}`}}>
@@ -2922,43 +3052,61 @@ function FamilyApp() {
                   <SLabel>Terminname *</SLabel>
                   <input value={newEvent.title} onChange={e=>setNewEvent(p=>({...p,title:e.target.value}))} placeholder={`z.B. Zahnarzt ${forM?.name}`} style={{width:"100%",background:T.bg3,border:`1px solid ${T.line2}`,borderRadius:10,padding:"11px 13px",fontSize:14,color:T.txt0}}/>
                 </div>
-                <div style={{display:"flex",gap:10}}>
-                  <div style={{flex:1}}>
-                    <SLabel>Datum</SLabel>
-                    <input
-                      type="date"
-                      value={newEvent.date}
-                      onChange={(e) => setNewEvent((p) => ({ ...p, date: e.target.value }))}
-                      style={{
-                        width: "100%",
-                        background: "#EAE2D6",
-                        border: "1px solid #C9BFB0",
-                        borderRadius: 10,
-                        padding: "11px 13px",
-                        fontSize: 13,
-                        color: "#2C1F14",
-                        fontFamily: "inherit",
-                      }}
-                    />
+                <div>
+                  <SLabel>Von</SLabel>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <input
+                        type="date"
+                        required
+                        value={newEvent.startDate}
+                        onChange={(e) => setNewEvent((p) => ({ ...p, startDate: e.target.value }))}
+                        style={dateInputSx}
+                      />
+                    </div>
+                    <div style={{ width: 128, flexShrink: 0 }}>
+                      <input
+                        type="time"
+                        value={newEvent.startTime}
+                        onChange={(e) => setNewEvent((p) => ({ ...p, startTime: e.target.value }))}
+                        style={dateInputSx}
+                      />
+                    </div>
                   </div>
-                  <div style={{ width: 128, flexShrink: 0 }}>
-                    <SLabel>Uhrzeit</SLabel>
-                    <input
-                      type="time"
-                      value={newEvent.time}
-                      onChange={(e) => setNewEvent((p) => ({ ...p, time: e.target.value }))}
-                      style={{
-                        width: "100%",
-                        background: "#EAE2D6",
-                        border: "1px solid #C9BFB0",
-                        borderRadius: 10,
-                        padding: "11px 13px",
-                        fontSize: 13,
-                        color: "#2C1F14",
-                        fontFamily: "inherit",
-                      }}
-                    />
+                </div>
+                <div>
+                  <SLabel>Bis (optional)</SLabel>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <input
+                        type="date"
+                        value={newEvent.endDate}
+                        onChange={(e) => setNewEvent((p) => ({ ...p, endDate: e.target.value }))}
+                        style={dateInputSx}
+                      />
+                    </div>
+                    <div style={{ width: 128, flexShrink: 0 }}>
+                      <input
+                        type="time"
+                        value={newEvent.endTime}
+                        onChange={(e) => setNewEvent((p) => ({ ...p, endTime: e.target.value }))}
+                        style={dateInputSx}
+                      />
+                    </div>
                   </div>
+                </div>
+                <div
+                  style={{
+                    background: T.bg2,
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: T.txt1,
+                    border: `1px solid ${T.line}`,
+                  }}
+                >
+                  {eventFormHint}
                 </div>
                 <div>
                   <SLabel>Wiederholung</SLabel>
