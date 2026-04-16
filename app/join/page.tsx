@@ -6,11 +6,9 @@ import { supabase } from "@/lib/supabase";
 
 const BG = "#F5EFE6";
 const RED = "#C8522A";
-const AMBER = "#C47B0A";
 const TXT = "#2C1F14";
 const TXT_MUTED = "#7A6555";
 
-const MEMBER_COLORS = ["#C8522A", "#3A6DBF", "#3D8C6E", "#C47B0A", "#7B4F8E", "#2A6B50"] as const;
 const EMOJI_OPTIONS = ["👶", "🧒", "👧", "👦", "🧑", "👩", "👨", "👴", "👵", "🧔"] as const;
 
 type Role = "Elternteil" | "Kind" | "Grosseltern" | "Andere";
@@ -24,7 +22,6 @@ type InviteInfo = {
 
 type InvalidReason = "missing" | "not_found" | "used";
 
-/** PostgREST may return one row as an object instead of a one-element array. */
 function rowsFromRpcInviteData(data: unknown): InviteInfo[] {
   if (data == null) return [];
   if (Array.isArray(data)) return data as InviteInfo[];
@@ -53,7 +50,6 @@ async function fetchInviteByToken(token: string): Promise<{ invite: InviteInfo |
       return { invite: null, reason: "not_found" };
     }
 
-    // Server misconfigured or query error — fall back to RPC (same DB rules as get_invitation_by_token)
     if (res.status >= 500 || reason === "config" || reason === "query_error") {
       const { data, error: rpcErr } = await supabase.rpc("get_invitation_by_token", {
         p_token: token,
@@ -91,8 +87,7 @@ function JoinPageInner() {
   const [invalidReason, setInvalidReason] = useState<InvalidReason | null>(null);
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("Elternteil");
-  const [avatar, setAvatar] = useState(EMOJI_OPTIONS[0]);
-  const [submitting, setSubmitting] = useState(false);
+  const [avatar, setAvatar] = useState<string>(EMOJI_OPTIONS[0]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -111,9 +106,6 @@ function JoinPageInner() {
         setChecking(false);
         return;
       }
-
-      if (cancelled) return;
-
       setInvite(row);
       setInvalidReason(null);
       setChecking(false);
@@ -121,9 +113,9 @@ function JoinPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [token, router]);
+  }, [token]);
 
-  async function onSubmit(e: FormEvent) {
+  function goToLogin(e: FormEvent) {
     e.preventDefault();
     setError(null);
     const n = name.trim();
@@ -131,34 +123,13 @@ function JoinPageInner() {
       setError("Bitte gib deinen Namen ein.");
       return;
     }
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      const params = new URLSearchParams();
-      params.set("token", token);
-      params.set("name", n);
-      params.set("role", role);
-      params.set("avatar", avatar || "👤");
-      router.push(`/login?${params.toString()}`);
-      return;
-    }
-    setSubmitting(true);
-    const color = MEMBER_COLORS[Math.floor(Math.random() * MEMBER_COLORS.length)];
-    const { error: rpcErr } = await supabase.rpc("accept_family_invitation", {
-      p_token: token,
-      p_name: n,
-      p_role: role,
-      p_avatar: avatar || "👤",
-      p_color: color,
-    });
-    setSubmitting(false);
-    if (rpcErr) {
-      setError(rpcErr.message || "Beitritt fehlgeschlagen.");
-      return;
-    }
-    router.replace("/");
-    router.refresh();
+    const q = [
+      `token=${encodeURIComponent(token)}`,
+      `name=${encodeURIComponent(n)}`,
+      `role=${encodeURIComponent(role)}`,
+      `avatar=${encodeURIComponent(avatar || "👤")}`,
+    ].join("&");
+    router.push(`/login?${q}`);
   }
 
   const inputClass =
@@ -219,50 +190,40 @@ function JoinPageInner() {
     >
       <div className="mx-auto w-full max-w-[430px]">
         <header className="mb-8 text-center">
-          <h1 className="text-2xl font-bold tracking-tight">
-            <span style={{ color: TXT }}>Do</span>
-            <span style={{ color: AMBER }}>.</span>
-            <span style={{ color: RED }}>Fam</span>
+          <h1 className="text-2xl font-bold tracking-tight" style={{ color: RED }}>
+            Willkommen bei DoFam! 🏡
           </h1>
-        </header>
-
-        <div className="mb-6 rounded-2xl border border-black/10 bg-white/80 p-6 text-center shadow-sm backdrop-blur">
-          <p className="text-lg font-semibold leading-snug">
-            Du wurdest zu DoFam eingeladen! 🎉
+          <p className="mt-3 text-sm leading-relaxed" style={{ color: TXT_MUTED }}>
+            Bitte gib deinen Namen ein bevor du beitrittst
           </p>
-          <p className="mt-2 text-sm" style={{ color: TXT_MUTED }}>
+          <p className="mt-2 text-xs" style={{ color: TXT_MUTED }}>
             Familie <strong style={{ color: TXT }}>{invite.family_name}</strong>
           </p>
-          <p className="mt-1 text-xs" style={{ color: TXT_MUTED }}>
-            {invite.email}
-          </p>
-        </div>
+        </header>
 
         <form
-          onSubmit={onSubmit}
-          className="space-y-4 rounded-2xl border border-black/10 bg-white/80 p-6 shadow-sm backdrop-blur"
+          onSubmit={goToLogin}
+          className="space-y-5 rounded-2xl border border-black/10 bg-white/85 p-6 shadow-sm backdrop-blur"
         >
-          <p className="text-center text-sm font-medium" style={{ color: TXT_MUTED }}>
-            Wie sollen dich deine Familie sehen?
-          </p>
           <div>
             <label
               htmlFor="join-name"
               className="mb-2 block text-xs font-semibold uppercase tracking-wide"
               style={{ color: TXT_MUTED }}
             >
-              Ihr Name <span style={{ color: RED }}>*</span>
+              Name & Profil <span style={{ color: RED }}>*</span>
             </label>
             <input
               id="join-name"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="z. B. Maria"
+              placeholder="Dein Vorname"
               className={inputClass}
-              autoComplete="name"
+              autoComplete="given-name"
             />
           </div>
+
           <div>
             <label
               htmlFor="join-role"
@@ -283,9 +244,10 @@ function JoinPageInner() {
               <option value="Andere">Andere</option>
             </select>
           </div>
+
           <div>
-            <p className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: TXT_MUTED }}>
-              Avatar Emoji auswählen
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: TXT_MUTED }}>
+              Avatar
             </p>
             <div className="flex flex-wrap gap-2">
               {EMOJI_OPTIONS.map((emo) => (
@@ -298,31 +260,29 @@ function JoinPageInner() {
                     borderColor: avatar === emo ? RED : "transparent",
                     backgroundColor: avatar === emo ? "rgba(200,82,42,0.08)" : "rgba(0,0,0,0.04)",
                   }}
-                  aria-label={`Emoji ${emo}`}
+                  aria-label={`Avatar ${emo}`}
+                  aria-pressed={avatar === emo}
                 >
                   {emo}
                 </button>
               ))}
             </div>
           </div>
+
           {error ? (
             <p className="text-sm" style={{ color: RED }} role="alert">
               {error}
             </p>
           ) : null}
+
           <button
             type="submit"
-            disabled={submitting}
-            className="w-full rounded-xl py-3.5 text-sm font-semibold text-white shadow-md disabled:opacity-60"
+            className="w-full rounded-xl py-3.5 text-sm font-semibold text-white shadow-md transition hover:opacity-95"
             style={{ backgroundColor: RED }}
           >
-            {submitting ? "Wird geladen…" : "Jetzt beitreten"}
+            Weiter →
           </button>
         </form>
-
-        <p className="mt-6 text-center text-xs" style={{ color: TXT_MUTED }}>
-          Du wirst zur Anmeldung weitergeleitet, falls du noch kein Konto hast. Mit Konto trittst du direkt bei.
-        </p>
       </div>
     </div>
   );

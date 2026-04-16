@@ -51,11 +51,8 @@ function LoginInner() {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const name =
-      inviteName ||
-      (user?.user_metadata as { full_name?: string } | undefined)?.full_name?.trim() ||
-      user?.email?.split("@")[0]?.trim() ||
-      "Mitglied";
+    const emailPrefix = user?.email?.split("@")[0]?.trim() ?? "";
+    const name = inviteName || emailPrefix || "Mitglied";
     const role = inviteRole || "Elternteil";
     const avatar = inviteAvatar || "👤";
     const color = INVITE_MEMBER_COLORS[Math.floor(Math.random() * INVITE_MEMBER_COLORS.length)];
