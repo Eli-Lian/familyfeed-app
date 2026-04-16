@@ -403,11 +403,13 @@ function FamilyApp() {
       return;
     }
     setUserEmail(user.email ?? "");
+    console.log("Loading family for user:", user.id);
     let { data: family, error: famErr } = await supabase
       .from("families")
       .select("id, name, created_by")
       .eq("created_by", user.id)
       .maybeSingle();
+    console.log("Own family result:", family, famErr);
     if (famErr) {
       setFamilyName("");
       setIsFamilyCreator(false);
@@ -421,6 +423,7 @@ function FamilyApp() {
         .select("family_id")
         .eq("user_id", user.id)
         .maybeSingle();
+      console.log("Member lookup result:", memberData);
 
       if (memberData?.family_id) {
         const { data: familyData } = await supabase
@@ -428,6 +431,7 @@ function FamilyApp() {
           .select("id, name, created_by")
           .eq("id", memberData.family_id)
           .maybeSingle();
+        console.log("Family from member:", familyData);
         family = familyData ?? null;
       }
     }
