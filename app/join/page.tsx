@@ -22,6 +22,65 @@ type InviteInfo = {
   email: string;
 };
 
+type InvalidReason = "missing" | "not_found" | "used";
+
+/** PostgREST may return one row as an object instead of a one-element array. */
+function rowsFromRpcInviteData(data: unknown): InviteInfo[] {
+  if (data == null) return [];
+  if (Array.isArray(data)) return data as InviteInfo[];
+  if (typeof data === "object" && data !== null && "invitation_id" in data) {
+    return [data as InviteInfo];
+  }
+  return [];
+}
+
+async function fetchInviteByToken(token: string): Promise<{ invite: InviteInfo | null; reason: InvalidReason | null }> {
+  try {
+    const res = await fetch(`/api/invite/validate?token=${encodeURIComponent(token)}`);
+    const json = (await res.json()) as
+      | { ok: true; invite: InviteInfo }
+      | { ok: false; reason: string; message?: string };
+
+    if ("ok" in json && json.ok && json.invite) {
+      return { invite: json.invite, reason: null };
+    }
+
+    const reason = "reason" in json ? json.reason : "";
+    if (reason === "already_used") {
+      return { invite: null, reason: "used" };
+    }
+    if (reason === "not_found" || reason === "missing_token") {
+      return { invite: null, reason: "not_found" };
+    }
+
+    // Server misconfigured or query error — fall back to RPC (same DB rules as get_invitation_by_token)
+    if (res.status >= 500 || reason === "config" || reason === "query_error") {
+      const { data, error: rpcErr } = await supabase.rpc("get_invitation_by_token", {
+        p_token: token,
+      });
+      if (!rpcErr) {
+        const rows = rowsFromRpcInviteData(data);
+        if (rows.length > 0) {
+          return { invite: rows[0], reason: null };
+        }
+      }
+    }
+
+    return { invite: null, reason: "not_found" };
+  } catch {
+    const { data, error: rpcErr } = await supabase.rpc("get_invitation_by_token", {
+      p_token: token,
+    });
+    if (!rpcErr) {
+      const rows = rowsFromRpcInviteData(data);
+      if (rows.length > 0) {
+        return { invite: rows[0], reason: null };
+      }
+    }
+    return { invite: null, reason: "not_found" };
+  }
+}
+
 function JoinPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -29,7 +88,7 @@ function JoinPageInner() {
 
   const [checking, setChecking] = useState(true);
   const [invite, setInvite] = useState<InviteInfo | null>(null);
-  const [invalid, setInvalid] = useState(false);
+  const [invalidReason, setInvalidReason] = useState<InvalidReason | null>(null);
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("Elternteil");
   const [avatar, setAvatar] = useState(EMOJI_OPTIONS[0]);
@@ -40,21 +99,19 @@ function JoinPageInner() {
     let cancelled = false;
     (async () => {
       if (!token) {
-        setInvalid(true);
+        setInvalidReason("missing");
         setChecking(false);
         return;
       }
-      const { data, error: rpcErr } = await supabase.rpc("get_invitation_by_token", {
-        p_token: token,
-      });
+      const { invite: row, reason } = await fetchInviteByToken(token);
       if (cancelled) return;
-      if (rpcErr || !data?.length) {
-        setInvalid(true);
-        setChecking(false);
-        return;
+      if (row) {
+        setInvite(row);
+        setInvalidReason(null);
+      } else {
+        setInvite(null);
+        setInvalidReason(reason ?? "not_found");
       }
-      const row = data[0] as InviteInfo;
-      setInvite(row);
       setChecking(false);
     })();
     return () => {
@@ -103,7 +160,19 @@ function JoinPageInner() {
     );
   }
 
-  if (invalid || !invite) {
+  if (!invite) {
+    const title =
+      invalidReason === "missing"
+        ? "Kein Einladungscode"
+        : invalidReason === "used"
+          ? "Link bereits verwendet"
+          : "Link ungültig oder abgelaufen";
+    const message =
+      invalidReason === "missing"
+        ? "Öffne den Link aus der Einladungs-E-Mail oder lasse dir einen neuen Link schicken."
+        : invalidReason === "used"
+          ? "Dieser Einladungslink wurde bereits genutzt. Bitte eine neue Einladung anfordern."
+          : "Dieser Link ist ungültig oder existiert nicht. Bitte eine neue Einladung anfordern.";
     return (
       <div
         className="flex min-h-screen flex-col items-center justify-center px-6 text-center"
@@ -114,10 +183,9 @@ function JoinPageInner() {
         }}
       >
         <p className="text-4xl">🏡</p>
-        <h1 className="mt-4 text-lg font-bold">Einladung ungültig</h1>
+        <h1 className="mt-4 text-lg font-bold">{title}</h1>
         <p className="mt-2 max-w-sm text-sm" style={{ color: TXT_MUTED }}>
-          Dieser Link ist abgelaufen, wurde bereits genutzt oder existiert nicht. Bitte eine neue Einladung
-          anfordern.
+          {message}
         </p>
       </div>
     );
