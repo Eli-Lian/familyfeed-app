@@ -383,6 +383,11 @@ function FamilyApp() {
   const [isFamilyCreator, setIsFamilyCreator] = useState(false);
   const [memberRemoveMessage, setMemberRemoveMessage] = useState<string | null>(null);
   const [memberAddMessage, setMemberAddMessage] = useState<string | null>(null);
+  const [memberRenameEditing, setMemberRenameEditing] = useState(false);
+  const [memberRenameDraft, setMemberRenameDraft] = useState("");
+  const [memberRenameSaving, setMemberRenameSaving] = useState(false);
+  const [memberRenameMessage, setMemberRenameMessage] = useState<string | null>(null);
+  const [memberRenameError, setMemberRenameError] = useState<string | null>(null);
   const [addMemberModal, setAddMemberModal] = useState(false);
   const [addMemberName, setAddMemberName] = useState("");
   const [addMemberRole, setAddMemberRole] = useState<string>("Elternteil");
@@ -640,6 +645,33 @@ function FamilyApp() {
   useEffect(() => {
     loadFamilyData();
   }, [loadFamilyData]);
+
+  useEffect(() => {
+    setMemberRenameEditing(false);
+    setMemberRenameError(null);
+  }, [currentMember]);
+
+  const saveMemberName = useCallback(async () => {
+    const id = currentMember;
+    if (!id) return;
+    const trimmed = memberRenameDraft.trim();
+    if (!trimmed) {
+      setMemberRenameError("Bitte gib einen Namen ein.");
+      return;
+    }
+    setMemberRenameSaving(true);
+    setMemberRenameError(null);
+    const { error } = await supabase.from("members").update({ name: trimmed }).eq("id", id);
+    setMemberRenameSaving(false);
+    if (error) {
+      setMemberRenameError(error.message);
+      return;
+    }
+    setMembers((prev) => prev.map((x) => (x.id === id ? { ...x, name: trimmed } : x)));
+    setMemberRenameEditing(false);
+    setMemberRenameMessage("Name gespeichert ✓");
+    window.setTimeout(() => setMemberRenameMessage(null), 4000);
+  }, [memberRenameDraft, currentMember]);
 
   useEffect(() => {
     if (loading || loadError || !familyId || !currentMember) return;
@@ -1795,6 +1827,22 @@ function FamilyApp() {
               {memberAddMessage}
             </div>
           ) : null}
+          {memberRenameMessage ? (
+            <div
+              role="status"
+              style={{
+                borderRadius: 12,
+                padding: "11px 14px",
+                background: T.greenT,
+                border: `1px solid ${T.greenB}`,
+                color: T.green,
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {memberRenameMessage}
+            </div>
+          ) : null}
           {members.map(m=>{
             const myPosts=posts.filter((p:any)=>p.memberId===m.id);
             const reads=myPosts.reduce((s:number,p:any)=>s+p.reads.length,0);
@@ -1831,7 +1879,111 @@ function FamilyApp() {
                     </button>
                   </div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:15,fontWeight:700,color:T.txt0}}>{m.name}</div>
+                    {m.id === currentMember && memberRenameEditing ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <input
+                          type="text"
+                          value={memberRenameDraft}
+                          onChange={(e) => setMemberRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void saveMemberName();
+                            }
+                          }}
+                          disabled={memberRenameSaving}
+                          autoFocus
+                          aria-label="Name bearbeiten"
+                          style={{
+                            width: "100%",
+                            boxSizing: "border-box",
+                            fontSize: 15,
+                            fontWeight: 700,
+                            color: T.txt0,
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            border: `1px solid ${T.line2}`,
+                            background: T.bg1,
+                            outline: "none",
+                          }}
+                        />
+                        {memberRenameError ? (
+                          <div style={{ fontSize: 11, color: T.red, fontWeight: 600 }} role="alert">
+                            {memberRenameError}
+                          </div>
+                        ) : null}
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <button
+                            type="button"
+                            className="r"
+                            disabled={memberRenameSaving}
+                            onClick={() => void saveMemberName()}
+                            style={{
+                              padding: "6px 14px",
+                              borderRadius: 8,
+                              background: T.red,
+                              color: "#fff",
+                              fontWeight: 600,
+                              fontSize: 12,
+                              border: "none",
+                              cursor: memberRenameSaving ? "default" : "pointer",
+                              opacity: memberRenameSaving ? 0.7 : 1,
+                            }}
+                          >
+                            {memberRenameSaving ? "…" : "Speichern"}
+                          </button>
+                          <button
+                            type="button"
+                            className="r"
+                            disabled={memberRenameSaving}
+                            onClick={() => {
+                              setMemberRenameEditing(false);
+                              setMemberRenameError(null);
+                            }}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: 8,
+                              background: T.bg3,
+                              color: T.txt1,
+                              fontWeight: 600,
+                              fontSize: 12,
+                              border: `1px solid ${T.line}`,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Abbrechen
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: T.txt0 }}>{m.name}</div>
+                        {m.id === currentMember ? (
+                          <button
+                            type="button"
+                            className="r"
+                            onClick={() => {
+                              setMemberRenameDraft(m.name);
+                              setMemberRenameEditing(true);
+                              setMemberRenameError(null);
+                            }}
+                            aria-label="Name ändern"
+                            title="Name ändern"
+                            style={{
+                              fontSize: 16,
+                              lineHeight: 1,
+                              padding: "2px 6px",
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              color: T.txt2,
+                            }}
+                          >
+                            ✎
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
                     <div style={{fontSize:11,color:T.txt2,marginTop:1}}>{m.role}</div>
                     {m.photo ? (
                       <button
