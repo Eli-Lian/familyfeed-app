@@ -373,6 +373,8 @@ function FamilyApp() {
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackDone, setFeedbackDone] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [isFamilyCreator, setIsFamilyCreator] = useState(false);
+  const [memberRemoveMessage, setMemberRemoveMessage] = useState<string | null>(null);
 
   const loadFamilyData = useCallback(async () => {
     setLoadError(null);
@@ -381,27 +383,31 @@ function FamilyApp() {
     } = await supabase.auth.getUser();
     if (!user) {
       setFamilyName("");
+      setIsFamilyCreator(false);
       setLoading(false);
       return;
     }
     setUserEmail(user.email ?? "");
     const { data: fam, error: famErr } = await supabase
       .from("families")
-      .select("id, name")
+      .select("id, name, created_by")
       .eq("created_by", user.id)
       .maybeSingle();
     if (famErr) {
       setFamilyName("");
+      setIsFamilyCreator(false);
       setLoadError(famErr.message);
       setLoading(false);
       return;
     }
     if (!fam?.id) {
       setFamilyName("");
+      setIsFamilyCreator(false);
       setLoadError("Keine Familie gefunden.");
       setLoading(false);
       return;
     }
+    setIsFamilyCreator(fam.created_by === user.id);
     setFamilyId(fam.id);
     setFamilyName(typeof fam.name === "string" ? fam.name.trim() : "");
     const { data: memRows, error: memErr } = await supabase
@@ -812,6 +818,88 @@ function FamilyApp() {
     e.target.value = "";
     if (!file || !memberId) return;
     await uploadPhoto(memberId, file);
+  };
+
+  const removeMemberFromFamily = async (m: UIMember) => {
+    if (!familyId || !isFamilyCreator || m.id === currentMember) return;
+    if (!window.confirm(`Möchtest du ${m.name} wirklich aus der Familie entfernen?`)) return;
+
+    const memberId = m.id;
+    const photoPath = extractAvatarsStoragePath(m.photo);
+    if (photoPath) {
+      await supabase.storage.from("avatars").remove([photoPath]);
+    }
+
+    const { error: ePosts } = await supabase.from("posts").delete().eq("member_id", memberId);
+    if (ePosts) {
+      window.alert(ePosts.message);
+      return;
+    }
+    const { error: eComments } = await supabase.from("comments").delete().eq("member_id", memberId);
+    if (eComments) {
+      window.alert(eComments.message);
+      return;
+    }
+    const { error: eReads } = await supabase.from("post_reads").delete().eq("member_id", memberId);
+    if (eReads) {
+      window.alert(eReads.message);
+      return;
+    }
+    const { error: eStories } = await supabase.from("stories").delete().eq("member_id", memberId);
+    if (eStories) {
+      window.alert(eStories.message);
+      return;
+    }
+    const { error: eEvents } = await supabase.from("member_events").delete().eq("member_id", memberId);
+    if (eEvents) {
+      window.alert(eEvents.message);
+      return;
+    }
+    await supabase.from("push_subscriptions").delete().eq("member_id", memberId);
+    const { error: eShop } = await supabase.from("shop_items").delete().eq("member_id", memberId);
+    if (eShop) {
+      window.alert(eShop.message);
+      return;
+    }
+
+    const { error: eMem } = await supabase.from("members").delete().eq("id", memberId).eq("family_id", familyId);
+    if (eMem) {
+      window.alert(eMem.message);
+      return;
+    }
+
+    const remaining = members.filter((x) => x.id !== memberId);
+    setMembers(remaining);
+    setPosts((prev) =>
+      prev
+        .filter((p) => p.memberId !== memberId)
+        .map((p) => ({
+          ...p,
+          reads: (p.reads || []).filter((rid: string) => rid !== memberId),
+          comments: (p.comments || []).filter((c: { memberId: string }) => c.memberId !== memberId),
+        }))
+    );
+    setMemberEvents((prev) => {
+      const next = { ...prev };
+      delete next[memberId];
+      return next;
+    });
+    setStories((prev) => {
+      const next = { ...prev };
+      delete next[memberId];
+      return next;
+    });
+    setShopItems((prev) => prev.filter((it) => it.memberId !== memberId));
+    setExpanded((ex) => {
+      if (!ex) return ex;
+      const post = posts.find((p) => p.id === ex);
+      if (post && post.memberId === memberId) return null;
+      return ex;
+    });
+    setViewStory((vs) => (vs && vs.memberId === memberId ? null : vs));
+
+    setMemberRemoveMessage(`${m.name} wurde aus der Familie entfernt.`);
+    window.setTimeout(() => setMemberRemoveMessage(null), 5000);
   };
 
   const submitEvent = async (memberId?: string) => {
@@ -1589,6 +1677,22 @@ function FamilyApp() {
       {/* FAMILIE */}
       {tab==="members"&&(
         <div style={{ width: "100%", padding: "12px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {memberRemoveMessage ? (
+            <div
+              role="status"
+              style={{
+                borderRadius: 12,
+                padding: "11px 14px",
+                background: T.greenT,
+                border: `1px solid ${T.greenB}`,
+                color: T.green,
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {memberRemoveMessage}
+            </div>
+          ) : null}
           {members.map(m=>{
             const myPosts=posts.filter((p:any)=>p.memberId===m.id);
             const reads=myPosts.reduce((s:number,p:any)=>s+p.reads.length,0);
@@ -1660,6 +1764,28 @@ function FamilyApp() {
                     </div>
                   ))}
                 </div>
+                {isFamilyCreator && m.id !== currentMember ? (
+                  <div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${T.line}` }}>
+                    <button
+                      type="button"
+                      className="r"
+                      onClick={() => void removeMemberFromFamily(m)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${T.redB}`,
+                        background: T.redT,
+                        color: T.red,
+                        fontWeight: 600,
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕ Entfernen
+                    </button>
+                  </div>
+                ) : null}
               </div>
             );
           })}
