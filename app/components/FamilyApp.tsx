@@ -162,6 +162,29 @@ function normalizeRecurrence(v: string | null | undefined): EventRecurrence {
   return "none";
 }
 
+function eventTimeForInput(ev: { startTimeStr?: string | null; endTimeStr?: string | null; time?: string }): {
+  start: string;
+  end: string;
+} {
+  const start = ev.startTimeStr || (ev.time && ev.time !== "–" ? String(ev.time) : "");
+  const end = ev.endTimeStr || "";
+  return { start, end };
+}
+
+function eventUiToNewEventForm(ev: any, memberId: string) {
+  const { start, end } = eventTimeForInput(ev);
+  return {
+    title: String(ev.title ?? ""),
+    icon: (ev.icon as string) || "📅",
+    forMemberId: memberId,
+    recurrence: normalizeRecurrence(ev.recurrence),
+    startDate: ev.isoDate ? String(ev.isoDate).slice(0, 10) : "",
+    startTime: start,
+    endDate: ev.endIsoDate ? String(ev.endIsoDate).slice(0, 10) : "",
+    endTime: end,
+  };
+}
+
 function compareIso(a: string, b: string): number {
   return a.localeCompare(b);
 }
@@ -423,6 +446,7 @@ function FamilyApp() {
     endDate: "",
     endTime: "",
   });
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [shopItems, setShopItems] = useState<any[]>([]);
   const [newItem, setNewItem] = useState({ text: "", qty: "", cat: "🛒" });
   const [shopFilter, setShopFilter] = useState("all");
@@ -1048,6 +1072,31 @@ function FamilyApp() {
     window.setTimeout(() => setMemberRemoveMessage(null), 5000);
   };
 
+  const mapRowToEventUi = (row: any) => {
+    const rowStart = row.start_date
+      ? String(row.start_date).slice(0, 10)
+      : row.date
+        ? String(row.date).slice(0, 10)
+        : null;
+    const rowEnd = row.end_date ? String(row.end_date).slice(0, 10) : null;
+    const startTimeStr = normalizeTimeFromRow(row.start_time ?? row.time);
+    const endTimeStr = normalizeTimeFromRow(row.end_time);
+    return {
+      id: row.id,
+      title: row.title,
+      date: formatEventDateLabel(rowStart),
+      time: formatDbTime(row.time),
+      startTimeStr,
+      endTimeStr,
+      icon: row.icon || "📅",
+      urgent: !!row.urgent,
+      addedBy: row.added_by || undefined,
+      isoDate: rowStart,
+      endIsoDate: rowEnd,
+      recurrence: normalizeRecurrence(row.recurrence),
+    };
+  };
+
   const submitEvent = async (memberId?: string) => {
     const targetId = memberId || newEvent.forMemberId;
     if (!newEvent.title.trim() || !targetId || !currentMember) return;
@@ -1060,6 +1109,50 @@ function FamilyApp() {
     const startTimeVal = newEvent.startTime?.trim() || null;
     const endTimeVal = newEvent.endTime?.trim() || null;
     const rec = normalizeRecurrence(newEvent.recurrence);
+
+    if (editingEventId) {
+      const { data, error } = await supabase
+        .from("member_events")
+        .update({
+          member_id: targetId,
+          title: newEvent.title.trim(),
+          date: startIso,
+          time: startTimeVal,
+          start_date: startIso,
+          start_time: startTimeVal,
+          end_date: endIso,
+          end_time: endTimeVal,
+          icon: newEvent.icon || "📅",
+          recurrence: rec,
+        })
+        .eq("id", editingEventId)
+        .select("*")
+        .single();
+      if (error || !data) return;
+      const ui = mapRowToEventUi(data);
+      setMemberEvents((p) => {
+        const next: Record<string, any[]> = {};
+        for (const mid of Object.keys(p)) {
+          next[mid] = (p[mid] || []).filter((e: any) => e.id !== editingEventId);
+        }
+        next[targetId] = [ui, ...(next[targetId] || [])];
+        return next;
+      });
+      setEditingEventId(null);
+      setNewEvent({
+        title: "",
+        icon: "📅",
+        forMemberId: currentMember,
+        recurrence: "none",
+        startDate: "",
+        startTime: "",
+        endDate: "",
+        endTime: "",
+      });
+      setAddEventModal(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from("member_events")
       .insert({
@@ -1080,28 +1173,7 @@ function FamilyApp() {
       .single();
     if (error || !data) return;
     const row = data;
-    const rowStart = row.start_date
-      ? String(row.start_date).slice(0, 10)
-      : row.date
-        ? String(row.date).slice(0, 10)
-        : null;
-    const rowEnd = row.end_date ? String(row.end_date).slice(0, 10) : null;
-    const startTimeStr = normalizeTimeFromRow(row.start_time ?? row.time);
-    const endTimeStr = normalizeTimeFromRow(row.end_time);
-    const ui = {
-      id: row.id,
-      title: row.title,
-      date: formatEventDateLabel(rowStart),
-      time: formatDbTime(row.time),
-      startTimeStr,
-      endTimeStr,
-      icon: row.icon || "📅",
-      urgent: !!row.urgent,
-      addedBy: row.added_by || undefined,
-      isoDate: rowStart,
-      endIsoDate: rowEnd,
-      recurrence: normalizeRecurrence(row.recurrence),
-    };
+    const ui = mapRowToEventUi(row);
     setMemberEvents((p) => ({
       ...p,
       [targetId]: [ui, ...(p[targetId] || [])],
@@ -1116,6 +1188,7 @@ function FamilyApp() {
       endDate: "",
       endTime: "",
     });
+    setEditingEventId(null);
     setAddEventModal(false);
   };
 
@@ -1564,7 +1637,7 @@ function FamilyApp() {
               <div style={{fontSize:10,color:T.txt2,marginTop:4,textTransform:"uppercase",letterSpacing:1,fontFamily:"monospace"}}>{dd}</div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
-              <button className="r" onClick={()=>{setNewEvent({title:"",icon:"📅",forMemberId:members[0]?.id??currentMember,recurrence:"none",startDate:"",startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+              <button className="r" onClick={()=>{setEditingEventId(null);setNewEvent({title:"",icon:"📅",forMemberId:members[0]?.id??currentMember,recurrence:"none",startDate:"",startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",gap:5}}>
                 <span style={{fontSize:14}}>+</span> Termin
               </button>
               <div style={{textAlign:"right"}}>
@@ -1590,7 +1663,7 @@ function FamilyApp() {
                         ?<div style={{fontSize:9,color:m.color,fontWeight:700,marginTop:1,textTransform:"uppercase",letterSpacing:0.5}}>{todayCount} heute</div>
                         :<div style={{fontSize:9,color:T.txt2,marginTop:1}}>Keine heute</div>}
                     </div>
-                    <button className="r" onClick={()=>{setNewEvent({title:"",icon:"📅",forMemberId:m.id,recurrence:"none",startDate:"",startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{width:22,height:22,borderRadius:6,background:m.color+"22",border:`1px solid ${m.color}55`,color:m.color,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>+</button>
+                    <button className="r" onClick={()=>{setEditingEventId(null);setNewEvent({title:"",icon:"📅",forMemberId:m.id,recurrence:"none",startDate:"",startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{width:22,height:22,borderRadius:6,background:m.color+"22",border:`1px solid ${m.color}55`,color:m.color,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>+</button>
                   </div>
                   <div style={{flex:1,padding:"6px 0"}}>
                     {evs.length===0&&<div style={{padding:"12px",textAlign:"center",fontSize:11,color:T.txt2}}>Keine Termine</div>}
@@ -1606,6 +1679,20 @@ function FamilyApp() {
                               {addedBy&&(addedBy as any).id!==m.id&&<span style={{opacity:0.7}}>· von {(addedBy as any).avatar}</span>}
                             </div>
                           </div>
+                          <button
+                            type="button"
+                            className="r"
+                            title="Termin bearbeiten"
+                            aria-label="Termin bearbeiten"
+                            onClick={() => {
+                              setEditingEventId(ev.id);
+                              setNewEvent(eventUiToNewEventForm(ev, m.id));
+                              setAddEventModal(true);
+                            }}
+                            style={{ fontSize: 12, color: T.txt2, padding: "2px 6px", borderRadius: 4 }}
+                          >
+                            ✎
+                          </button>
                           <button className="r" onClick={()=>removeEvent(m.id,ev.id)} style={{fontSize:11,color:m.color+"88",padding:"2px 4px",borderRadius:4}}>✕</button>
                         </div>
                       );
@@ -1752,7 +1839,7 @@ function FamilyApp() {
                   <div style={{fontSize:13,fontWeight:700,color:T.txt0}}>{selLabel}</div>
                   <div style={{fontSize:10,color:T.txt2,marginTop:1}}>{selEvs.length===0?"Keine Termine":`${selEvs.length} Termin${selEvs.length>1?"e":""}`}</div>
                 </div>
-                <button className="r" onClick={()=>{setNewEvent({title:"",icon:"📅",forMemberId:members[0].id,recurrence:"none",startDate:calSelected,startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12}}>+ Termin</button>
+                <button className="r" onClick={()=>{setEditingEventId(null);setNewEvent({title:"",icon:"📅",forMemberId:members[0].id,recurrence:"none",startDate:calSelected,startTime:"",endDate:"",endTime:""});setAddEventModal(true);}} style={{background:T.red,borderRadius:8,padding:"7px 13px",color:"#fff",fontWeight:700,fontSize:12}}>+ Termin</button>
               </div>
               {selEvs.length===0
                 ?<div style={{background:T.bg1,border:`1px solid ${T.line}`,borderRadius:14,padding:"28px 16px",textAlign:"center"}}><div style={{fontSize:28,marginBottom:8}}>📅</div><div style={{fontSize:14,color:T.txt2}}>Kein Termin an diesem Tag</div></div>
@@ -1771,6 +1858,20 @@ function FamilyApp() {
                           {addedBy&&(addedBy as any).id!==mem?.id&&<span style={{fontSize:10,color:T.txt2}}>· von {(addedBy as any).name}</span>}
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        className="r"
+                        title="Termin bearbeiten"
+                        aria-label="Termin bearbeiten"
+                        onClick={() => {
+                          setEditingEventId(ev.id);
+                          setNewEvent(eventUiToNewEventForm(ev, ev.memberId));
+                          setAddEventModal(true);
+                        }}
+                        style={{ fontSize: 13, color: T.txt2, padding: "4px 6px" }}
+                      >
+                        ✎
+                      </button>
                       <button className="r" onClick={()=>removeEvent(mem!.id,ev.id)} style={{fontSize:13,color:T.txt2,padding:"4px 6px",opacity:0.5}}>✕</button>
                     </div>
                   );
@@ -2986,6 +3087,7 @@ function FamilyApp() {
       {/* TERMIN MODAL */}
       {addEventModal&&(()=>{
         const forM=gm(newEvent.forMemberId);
+        const isEditing = !!editingEventId;
         const ICON_OPTS=["📅","🦷","💼","🏥","🎹","⚽","🎉","🚌","🏫","🏃","🔧","✈️","🎂","🎓","💉","🐾"];
         const sd = newEvent.startDate.trim();
         const ed = newEvent.endDate.trim();
@@ -3018,8 +3120,18 @@ function FamilyApp() {
             <div className="slide" style={{background:T.bg1,borderRadius:"20px 20px 0 0",width:"100%",maxHeight:"90vh",overflowY:"auto",borderTop:`2px solid ${T.red}`}}>
               <div style={{width:32,height:3,background:T.line2,borderRadius:2,margin:"12px auto 0"}}/>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px 0"}}>
-                <div style={{fontSize:16,fontWeight:700,color:T.txt0}}>Termin erfassen</div>
-                <button className="r" onClick={()=>setAddEventModal(false)} style={{background:T.bg3,borderRadius:"50%",width:30,height:30,fontSize:13,color:T.txt1,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                <div style={{fontSize:16,fontWeight:700,color:T.txt0}}>{isEditing ? "Termin bearbeiten" : "Termin erfassen"}</div>
+                <button
+                  type="button"
+                  className="r"
+                  onClick={() => {
+                    setAddEventModal(false);
+                    setEditingEventId(null);
+                  }}
+                  style={{background:T.bg3,borderRadius:"50%",width:30,height:30,fontSize:13,color:T.txt1,display:"flex",alignItems:"center",justifyContent:"center"}}
+                >
+                  ✕
+                </button>
               </div>
               <div style={{padding:"16px 16px 28px",display:"flex",flexDirection:"column",gap:14}}>
                 <div>
@@ -3140,8 +3252,8 @@ function FamilyApp() {
                   <Av m={am} s={26}/>
                   <span style={{fontSize:12,color:T.txt1}}>Erfasst von <strong style={{color:T.txt0}}>{am?.name}</strong></span>
                 </div>
-                <button className="r" onClick={()=>submitEvent(newEvent.forMemberId)} style={{width:"100%",padding:"14px",borderRadius:11,background:T.red,color:"#fff",fontWeight:700,fontSize:15}}>
-                  Termin speichern für {forM?.avatar} {forM?.name}
+                <button type="button" className="r" onClick={()=>submitEvent(newEvent.forMemberId)} style={{width:"100%",padding:"14px",borderRadius:11,background:T.red,color:"#fff",fontWeight:700,fontSize:15}}>
+                  {isEditing ? `Termin aktualisieren für ${forM?.avatar} ${forM?.name}` : `Termin speichern für ${forM?.avatar} ${forM?.name}`}
                 </button>
               </div>
             </div>
