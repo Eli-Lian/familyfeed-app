@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { INVITE_TOKEN_STORAGE_KEY } from "@/lib/inviteToken";
 
 const BG = "#F5EFE6";
 const RED = "#C8522A";
@@ -105,19 +106,36 @@ function JoinPageInner() {
       }
       const { invite: row, reason } = await fetchInviteByToken(token);
       if (cancelled) return;
-      if (row) {
-        setInvite(row);
-        setInvalidReason(null);
-      } else {
+      if (!row) {
         setInvite(null);
         setInvalidReason(reason ?? "not_found");
+        setChecking(false);
+        return;
       }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (cancelled) return;
+
+      if (!user) {
+        try {
+          localStorage.setItem(INVITE_TOKEN_STORAGE_KEY, token);
+        } catch {
+          /* ignore quota / private mode */
+        }
+        router.replace("/login?invite=true");
+        return;
+      }
+
+      setInvite(row);
+      setInvalidReason(null);
       setChecking(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, router]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -141,7 +159,13 @@ function JoinPageInner() {
       setError(rpcErr.message || "Beitritt fehlgeschlagen.");
       return;
     }
-    router.replace("/login");
+    try {
+      localStorage.removeItem(INVITE_TOKEN_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    router.replace("/");
+    router.refresh();
   }
 
   const inputClass =
@@ -293,7 +317,7 @@ function JoinPageInner() {
         </form>
 
         <p className="mt-6 text-center text-xs" style={{ color: TXT_MUTED }}>
-          Nach dem Beitritt kannst du dir ein Konto anlegen und dich anmelden.
+          Nach dem Beitritt gelangst du zur Startseite.
         </p>
       </div>
     </div>

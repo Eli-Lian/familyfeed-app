@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { INVITE_TOKEN_STORAGE_KEY } from "@/lib/inviteToken";
 
 const BG = "#F5EFE6";
 const RED = "#C8522A";
@@ -35,6 +36,13 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inviteFromLink, setInviteFromLink] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    setInviteFromLink(sp.get("invite") === "true");
+  }, []);
 
   const inputClass =
     "w-full rounded-xl border border-black/15 bg-white px-4 py-3 text-sm text-[#2C1F14] outline-none transition focus:ring-2 focus:ring-[#C8522A]/35 focus:ring-offset-2 focus:ring-offset-[#F5EFE6]";
@@ -61,7 +69,12 @@ export default function LoginPage() {
       setError(toGermanAuthError(signError.message));
       return;
     }
-    router.push("/");
+    const pending = typeof window !== "undefined" ? localStorage.getItem(INVITE_TOKEN_STORAGE_KEY)?.trim() : "";
+    if (pending) {
+      router.push(`/join?token=${encodeURIComponent(pending)}`);
+    } else {
+      router.push("/");
+    }
     router.refresh();
   }
 
@@ -95,7 +108,12 @@ export default function LoginPage() {
       setError(toGermanAuthError(signError.message));
       return;
     }
-    router.push("/onboarding");
+    const pending = typeof window !== "undefined" ? localStorage.getItem(INVITE_TOKEN_STORAGE_KEY)?.trim() : "";
+    if (pending) {
+      router.push(`/join?token=${encodeURIComponent(pending)}`);
+    } else {
+      router.push("/onboarding");
+    }
     router.refresh();
   }
 
@@ -155,6 +173,14 @@ export default function LoginPage() {
           <p className="mt-2 text-sm" style={{ color: TXT_MUTED }}>
             Deine Familie. Dein Ort.
           </p>
+          {inviteFromLink ? (
+            <p
+              className="mt-3 rounded-xl border border-black/10 bg-white/80 px-3 py-2 text-sm"
+              style={{ color: TXT_MUTED }}
+            >
+              Du wurdest eingeladen — melde dich an oder registriere dich, um der Familie beizutreten.
+            </p>
+          ) : null}
         </header>
 
         {authView === "main" ? (
