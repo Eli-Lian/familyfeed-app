@@ -31,6 +31,9 @@ function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("token")?.trim() ?? "";
+  const inviteName = searchParams.get("name")?.trim() ?? "";
+  const inviteRole = searchParams.get("role")?.trim() ?? "";
+  const inviteAvatar = searchParams.get("avatar")?.trim() ?? "";
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [authView, setAuthView] = useState<"main" | "forgot">("main");
@@ -49,15 +52,18 @@ function LoginInner() {
       data: { user },
     } = await supabase.auth.getUser();
     const name =
+      inviteName ||
       (user?.user_metadata as { full_name?: string } | undefined)?.full_name?.trim() ||
       user?.email?.split("@")[0]?.trim() ||
       "Mitglied";
+    const role = inviteRole || "Elternteil";
+    const avatar = inviteAvatar || "👤";
     const color = INVITE_MEMBER_COLORS[Math.floor(Math.random() * INVITE_MEMBER_COLORS.length)];
     const { error: rpcErr } = await supabase.rpc("accept_family_invitation", {
       p_token: token,
       p_name: name,
-      p_role: "Elternteil",
-      p_avatar: "👤",
+      p_role: role,
+      p_avatar: avatar,
       p_color: color,
     });
     if (rpcErr) {

@@ -11,9 +11,9 @@ const TXT = "#2C1F14";
 const TXT_MUTED = "#7A6555";
 
 const MEMBER_COLORS = ["#C8522A", "#3A6DBF", "#3D8C6E", "#C47B0A", "#7B4F8E", "#2A6B50"] as const;
-const EMOJI_OPTIONS = ["👩", "👨", "👧", "👦", "👶", "👵", "👴", "🧒", "🐶", "🐱", "⭐", "🌈"];
+const EMOJI_OPTIONS = ["👶", "🧒", "👧", "👦", "🧑", "👩", "👨", "👴", "👵", "🧔"] as const;
 
-type Role = "Elternteil" | "Kind";
+type Role = "Elternteil" | "Kind" | "Grosseltern" | "Andere";
 
 type InviteInfo = {
   invitation_id: string;
@@ -112,15 +112,7 @@ function JoinPageInner() {
         return;
       }
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
       if (cancelled) return;
-
-      if (!user) {
-        router.replace(`/login?token=${encodeURIComponent(token)}`);
-        return;
-      }
 
       setInvite(row);
       setInvalidReason(null);
@@ -137,6 +129,18 @@ function JoinPageInner() {
     const n = name.trim();
     if (!n || !token) {
       setError("Bitte gib deinen Namen ein.");
+      return;
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      const params = new URLSearchParams();
+      params.set("token", token);
+      params.set("name", n);
+      params.set("role", role);
+      params.set("avatar", avatar || "👤");
+      router.push(`/login?${params.toString()}`);
       return;
     }
     setSubmitting(true);
@@ -242,20 +246,29 @@ function JoinPageInner() {
             Wie sollen dich deine Familie sehen?
           </p>
           <div>
-            <label htmlFor="join-name" className="sr-only">
-              Name
+            <label
+              htmlFor="join-name"
+              className="mb-2 block text-xs font-semibold uppercase tracking-wide"
+              style={{ color: TXT_MUTED }}
+            >
+              Ihr Name <span style={{ color: RED }}>*</span>
             </label>
             <input
               id="join-name"
+              required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Dein Name"
+              placeholder="z. B. Maria"
               className={inputClass}
               autoComplete="name"
             />
           </div>
           <div>
-            <label htmlFor="join-role" className="sr-only">
+            <label
+              htmlFor="join-role"
+              className="mb-2 block text-xs font-semibold uppercase tracking-wide"
+              style={{ color: TXT_MUTED }}
+            >
               Rolle
             </label>
             <select
@@ -266,11 +279,13 @@ function JoinPageInner() {
             >
               <option value="Elternteil">Elternteil</option>
               <option value="Kind">Kind</option>
+              <option value="Grosseltern">Grosseltern</option>
+              <option value="Andere">Andere</option>
             </select>
           </div>
           <div>
             <p className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: TXT_MUTED }}>
-              Avatar
+              Avatar Emoji auswählen
             </p>
             <div className="flex flex-wrap gap-2">
               {EMOJI_OPTIONS.map((emo) => (
@@ -301,12 +316,12 @@ function JoinPageInner() {
             className="w-full rounded-xl py-3.5 text-sm font-semibold text-white shadow-md disabled:opacity-60"
             style={{ backgroundColor: RED }}
           >
-            {submitting ? "Speichern…" : "Beitreten & zum Login"}
+            {submitting ? "Wird geladen…" : "Jetzt beitreten"}
           </button>
         </form>
 
         <p className="mt-6 text-center text-xs" style={{ color: TXT_MUTED }}>
-          Nach dem Beitritt gelangst du zur Startseite.
+          Du wirst zur Anmeldung weitergeleitet, falls du noch kein Konto hast. Mit Konto trittst du direkt bei.
         </p>
       </div>
     </div>
