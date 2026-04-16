@@ -403,7 +403,7 @@ function FamilyApp() {
       return;
     }
     setUserEmail(user.email ?? "");
-    const { data: fam, error: famErr } = await supabase
+    let { data: family, error: famErr } = await supabase
       .from("families")
       .select("id, name, created_by")
       .eq("created_by", user.id)
@@ -415,20 +415,36 @@ function FamilyApp() {
       setLoading(false);
       return;
     }
-    if (!fam?.id) {
+    if (!family) {
+      const { data: memberData } = await supabase
+        .from("members")
+        .select("family_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (memberData?.family_id) {
+        const { data: familyData } = await supabase
+          .from("families")
+          .select("id, name, created_by")
+          .eq("id", memberData.family_id)
+          .maybeSingle();
+        family = familyData ?? null;
+      }
+    }
+    if (!family) {
       setFamilyName("");
       setIsFamilyCreator(false);
-      setLoadError("Keine Familie gefunden.");
+      setLoadError("Familie nicht gefunden");
       setLoading(false);
       return;
     }
-    setIsFamilyCreator(fam.created_by === user.id);
-    setFamilyId(fam.id);
-    setFamilyName(typeof fam.name === "string" ? fam.name.trim() : "");
+    setIsFamilyCreator(family.created_by === user.id);
+    setFamilyId(family.id);
+    setFamilyName(typeof family.name === "string" ? family.name.trim() : "");
     const { data: memRows, error: memErr } = await supabase
       .from("members")
       .select("id, name, avatar, color, role, photo_url")
-      .eq("family_id", fam.id)
+      .eq("family_id", family.id)
       .order("created_at", { ascending: true });
     if (memErr) {
       setLoadError(memErr.message);
@@ -597,7 +613,7 @@ function FamilyApp() {
     const { data: shopRows, error: shopErr } = await supabase
       .from("shop_items")
       .select("*")
-      .eq("family_id", fam.id)
+      .eq("family_id", family.id)
       .order("created_at", { ascending: false });
     if (shopErr) {
       setLoadError(shopErr.message);
