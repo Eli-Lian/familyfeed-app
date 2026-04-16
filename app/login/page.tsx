@@ -130,6 +130,22 @@ function LoginInner() {
       return;
     }
     if (inviteToken) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email: trimmed,
+          password,
+        });
+        if (signInErr) {
+          setError(toGermanAuthError(signInErr.message));
+          return;
+        }
+      }
+
       await acceptInvitationAndGoHome(inviteToken);
       return;
     }
