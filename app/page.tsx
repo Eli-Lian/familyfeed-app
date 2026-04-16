@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import FamilyApp from "@/app/components/FamilyApp";
-import { INVITE_TOKEN_STORAGE_KEY } from "@/lib/inviteToken";
 
 export default function Home() {
   const router = useRouter();
@@ -40,17 +39,6 @@ export default function Home() {
       }
 
       if (!family) {
-        let inviteToken: string | null = null;
-        try {
-          inviteToken = typeof window !== "undefined" ? localStorage.getItem(INVITE_TOKEN_STORAGE_KEY) : null;
-        } catch {
-          inviteToken = null;
-        }
-        const t = inviteToken?.trim();
-        if (t) {
-          router.push(`/join?token=${encodeURIComponent(t)}`);
-          return;
-        }
         router.push("/onboarding");
         return;
       }

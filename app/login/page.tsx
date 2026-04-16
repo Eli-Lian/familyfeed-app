@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { INVITE_TOKEN_STORAGE_KEY } from "@/lib/inviteToken";
 
 const BG = "#F5EFE6";
 const RED = "#C8522A";
 const TXT = "#2C1F14";
 const TXT_MUTED = "#7A6555";
+
+const INVITE_MEMBER_COLORS = ["#C8522A", "#3A6DBF", "#3D8C6E", "#C47B0A", "#7B4F8E", "#2A6B50"] as const;
 
 function toGermanAuthError(message: string): string {
   const m = message.trim();
@@ -26,8 +27,11 @@ function toGermanAuthError(message: string): string {
 
 const PASSWORD_RESET_REDIRECT = "https://familyfeed-app.vercel.app/reset-password";
 
-export default function LoginPage() {
+function LoginInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get("token")?.trim() ?? "";
+
   const [mode, setMode] = useState<"login" | "register">("login");
   const [authView, setAuthView] = useState<"main" | "forgot">("main");
   const [resetEmailSent, setResetEmailSent] = useState(false);
@@ -36,16 +40,34 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [inviteFromLink, setInviteFromLink] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const sp = new URLSearchParams(window.location.search);
-    setInviteFromLink(sp.get("invite") === "true");
-  }, []);
 
   const inputClass =
     "w-full rounded-xl border border-black/15 bg-white px-4 py-3 text-sm text-[#2C1F14] outline-none transition focus:ring-2 focus:ring-[#C8522A]/35 focus:ring-offset-2 focus:ring-offset-[#F5EFE6]";
+
+  async function acceptInvitationAndGoHome(token: string) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const name =
+      (user?.user_metadata as { full_name?: string } | undefined)?.full_name?.trim() ||
+      user?.email?.split("@")[0]?.trim() ||
+      "Mitglied";
+    const color = INVITE_MEMBER_COLORS[Math.floor(Math.random() * INVITE_MEMBER_COLORS.length)];
+    const { error: rpcErr } = await supabase.rpc("accept_family_invitation", {
+      p_token: token,
+      p_name: name,
+      p_role: "Elternteil",
+      p_avatar: "👤",
+      p_color: color,
+    });
+    if (rpcErr) {
+      setError(rpcErr.message || "Einladung konnte nicht angenommen werden.");
+      return false;
+    }
+    router.push("/");
+    router.refresh();
+    return true;
+  }
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
@@ -69,12 +91,11 @@ export default function LoginPage() {
       setError(toGermanAuthError(signError.message));
       return;
     }
-    const pending = typeof window !== "undefined" ? localStorage.getItem(INVITE_TOKEN_STORAGE_KEY)?.trim() : "";
-    if (pending) {
-      router.push(`/join?token=${encodeURIComponent(pending)}`);
-    } else {
-      router.push("/");
+    if (inviteToken) {
+      await acceptInvitationAndGoHome(inviteToken);
+      return;
     }
+    router.push("/");
     router.refresh();
   }
 
@@ -108,12 +129,11 @@ export default function LoginPage() {
       setError(toGermanAuthError(signError.message));
       return;
     }
-    const pending = typeof window !== "undefined" ? localStorage.getItem(INVITE_TOKEN_STORAGE_KEY)?.trim() : "";
-    if (pending) {
-      router.push(`/join?token=${encodeURIComponent(pending)}`);
-    } else {
-      router.push("/onboarding");
+    if (inviteToken) {
+      await acceptInvitationAndGoHome(inviteToken);
+      return;
     }
+    router.push("/onboarding");
     router.refresh();
   }
 
@@ -173,7 +193,7 @@ export default function LoginPage() {
           <p className="mt-2 text-sm" style={{ color: TXT_MUTED }}>
             Deine Familie. Dein Ort.
           </p>
-          {inviteFromLink ? (
+          {inviteToken ? (
             <p
               className="mt-3 rounded-xl border border-black/10 bg-white/80 px-3 py-2 text-sm"
               style={{ color: TXT_MUTED }}
@@ -393,5 +413,26 @@ export default function LoginPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function LoginLoading() {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center px-4"
+      style={{ backgroundColor: BG, fontFamily: "var(--font-dm-sans), system-ui, sans-serif" }}
+    >
+      <p className="text-sm" style={{ color: TXT_MUTED }}>
+        Wird geladen…
+      </p>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginLoading />}>
+      <LoginInner />
+    </Suspense>
   );
 }

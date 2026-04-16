@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { INVITE_TOKEN_STORAGE_KEY } from "@/lib/inviteToken";
 
 const BG = "#F5EFE6";
 const RED = "#C8522A";
@@ -119,12 +118,7 @@ function JoinPageInner() {
       if (cancelled) return;
 
       if (!user) {
-        try {
-          localStorage.setItem(INVITE_TOKEN_STORAGE_KEY, token);
-        } catch {
-          /* ignore quota / private mode */
-        }
-        router.replace("/login?invite=true");
+        router.replace(`/login?token=${encodeURIComponent(token)}`);
         return;
       }
 
@@ -158,11 +152,6 @@ function JoinPageInner() {
     if (rpcErr) {
       setError(rpcErr.message || "Beitritt fehlgeschlagen.");
       return;
-    }
-    try {
-      localStorage.removeItem(INVITE_TOKEN_STORAGE_KEY);
-    } catch {
-      /* ignore */
     }
     router.replace("/");
     router.refresh();
