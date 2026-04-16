@@ -198,6 +198,10 @@ const STORY_BG_OPTIONS = [
   "#C47B0A","#8B560A","#7B4F8E","#4A3060","#C44A6B","#8B2A45",
 ];
 
+const ADD_MEMBER_EMOJIS = ["👶", "🧒", "👧", "👦", "🧑", "👩", "👨", "👴", "👵"] as const;
+const ADD_MEMBER_ROLES = ["Elternteil", "Kind", "Grosseltern", "Andere"] as const;
+const MAX_FAMILY_MEMBERS = 6;
+
 const TYPE: Record<string,{label:string,sym:string,color:string,bg:string,border:string}> = {
   status:   { label:"Status",     sym:"●", color:T.red,   bg:T.redT,   border:T.redB   },
   event:    { label:"Termin",     sym:"◆", color:T.blue,  bg:T.blueT,  border:T.blueB  },
@@ -375,6 +379,14 @@ function FamilyApp() {
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [isFamilyCreator, setIsFamilyCreator] = useState(false);
   const [memberRemoveMessage, setMemberRemoveMessage] = useState<string | null>(null);
+  const [memberAddMessage, setMemberAddMessage] = useState<string | null>(null);
+  const [addMemberModal, setAddMemberModal] = useState(false);
+  const [addMemberName, setAddMemberName] = useState("");
+  const [addMemberRole, setAddMemberRole] = useState<string>("Elternteil");
+  const [addMemberAvatar, setAddMemberAvatar] = useState("👶");
+  const [addMemberColor, setAddMemberColor] = useState(STORY_BG_OPTIONS[0]);
+  const [addMemberSaving, setAddMemberSaving] = useState(false);
+  const [addMemberError, setAddMemberError] = useState<string | null>(null);
 
   const loadFamilyData = useCallback(async () => {
     setLoadError(null);
@@ -1112,6 +1124,55 @@ function FamilyApp() {
     setMemberInviteLoading(false);
   }
 
+  function openAddMemberModal() {
+    setAddMemberName("");
+    setAddMemberRole("Elternteil");
+    setAddMemberAvatar("👶");
+    setAddMemberColor(STORY_BG_OPTIONS[0]);
+    setAddMemberError(null);
+    setAddMemberModal(true);
+  }
+
+  function closeAddMemberModal() {
+    setAddMemberModal(false);
+    setAddMemberError(null);
+  }
+
+  async function submitAddMember() {
+    if (!familyId) return;
+    const name = addMemberName.trim();
+    if (!name) {
+      setAddMemberError("Bitte einen Namen eingeben.");
+      return;
+    }
+    setAddMemberSaving(true);
+    setAddMemberError(null);
+    const { data, error } = await supabase
+      .from("members")
+      .insert({
+        family_id: familyId,
+        name,
+        role: addMemberRole,
+        avatar: addMemberAvatar,
+        color: addMemberColor,
+        photo_url: null,
+      })
+      .select("id, name, avatar, color, role, photo_url")
+      .single();
+    setAddMemberSaving(false);
+    if (error || !data) {
+      setAddMemberError(error?.message ?? "Speichern fehlgeschlagen.");
+      return;
+    }
+    const ui = mapDbMember(data);
+    setMembers((prev) => [...prev, ui]);
+    setMemberEvents((prev) => ({ ...prev, [data.id]: [] }));
+    setStories((prev) => ({ ...prev, [data.id]: [] }));
+    setAddMemberModal(false);
+    setMemberAddMessage(`${data.name} wurde hinzugefügt.`);
+    window.setTimeout(() => setMemberAddMessage(null), 5000);
+  }
+
   if (loading) {
     return (
       <div
@@ -1693,6 +1754,22 @@ function FamilyApp() {
               {memberRemoveMessage}
             </div>
           ) : null}
+          {memberAddMessage ? (
+            <div
+              role="status"
+              style={{
+                borderRadius: 12,
+                padding: "11px 14px",
+                background: T.greenT,
+                border: `1px solid ${T.greenB}`,
+                color: T.green,
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {memberAddMessage}
+            </div>
+          ) : null}
           {members.map(m=>{
             const myPosts=posts.filter((p:any)=>p.memberId===m.id);
             const reads=myPosts.reduce((s:number,p:any)=>s+p.reads.length,0);
@@ -1789,6 +1866,26 @@ function FamilyApp() {
               </div>
             );
           })}
+          {isFamilyCreator && members.length < MAX_FAMILY_MEMBERS ? (
+            <button
+              type="button"
+              className="r"
+              onClick={openAddMemberModal}
+              style={{
+                width: "100%",
+                padding: "14px 16px",
+                borderRadius: 12,
+                background: T.greenT,
+                border: `2px solid ${T.greenB}`,
+                color: T.green,
+                fontWeight: 700,
+                fontSize: 14,
+                marginTop: 4,
+              }}
+            >
+              👶 Mitglied hinzufügen
+            </button>
+          ) : null}
           <button
             type="button"
             className="r"
@@ -2289,6 +2386,199 @@ function FamilyApp() {
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* NEUES MITGLIED (manuell) */}
+      {addMemberModal && (
+        <div
+          className="dim"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(44,31,20,0.6)",
+            zIndex: 163,
+            display: "flex",
+            alignItems: "flex-end",
+            maxWidth: 430,
+            margin: "0 auto",
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeAddMemberModal();
+          }}
+        >
+          <div
+            className="slide"
+            style={{
+              background: T.bg0,
+              borderRadius: "20px 20px 0 0",
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              borderTop: `3px solid ${T.green}`,
+              boxShadow: "0 -8px 32px rgba(44,31,20,0.12)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ width: 32, height: 3, background: T.line2, borderRadius: 2, margin: "12px auto 0" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px 0" }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: T.txt0 }}>Neues Mitglied</div>
+              <button
+                type="button"
+                className="r"
+                onClick={closeAddMemberModal}
+                style={{
+                  background: T.bg1,
+                  borderRadius: "50%",
+                  width: 32,
+                  height: 32,
+                  fontSize: 14,
+                  color: T.txt1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: `1px solid ${T.line}`,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submitAddMember();
+              }}
+              style={{ padding: "16px 16px 28px", display: "flex", flexDirection: "column", gap: 14 }}
+            >
+              <div>
+                <label htmlFor="add-member-name" style={{ fontSize: 10, fontWeight: 700, color: T.txt2, textTransform: "uppercase", letterSpacing: 0.8, display: "block", marginBottom: 6 }}>
+                  Name
+                </label>
+                <input
+                  id="add-member-name"
+                  value={addMemberName}
+                  onChange={(e) => setAddMemberName(e.target.value)}
+                  placeholder="z.B. Lena"
+                  autoComplete="name"
+                  disabled={addMemberSaving}
+                  style={{
+                    width: "100%",
+                    borderRadius: 12,
+                    border: `1px solid ${T.line2}`,
+                    background: T.bg1,
+                    padding: "12px 14px",
+                    fontSize: 14,
+                    color: T.txt0,
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <div>
+                <label htmlFor="add-member-role" style={{ fontSize: 10, fontWeight: 700, color: T.txt2, textTransform: "uppercase", letterSpacing: 0.8, display: "block", marginBottom: 6 }}>
+                  Rolle
+                </label>
+                <select
+                  id="add-member-role"
+                  value={addMemberRole}
+                  onChange={(e) => setAddMemberRole(e.target.value)}
+                  disabled={addMemberSaving}
+                  style={{
+                    width: "100%",
+                    borderRadius: 12,
+                    border: `1px solid ${T.line2}`,
+                    background: T.bg1,
+                    padding: "12px 14px",
+                    fontSize: 14,
+                    color: T.txt0,
+                    outline: "none",
+                  }}
+                >
+                  {ADD_MEMBER_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <p style={{ fontSize: 10, fontWeight: 700, color: T.txt2, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+                  Avatar
+                </p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ADD_MEMBER_EMOJIS.map((emo) => (
+                    <button
+                      key={emo}
+                      type="button"
+                      className="r"
+                      disabled={addMemberSaving}
+                      onClick={() => setAddMemberAvatar(emo)}
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 10,
+                        fontSize: 22,
+                        border: `2px solid ${addMemberAvatar === emo ? T.green : T.line}`,
+                        background: addMemberAvatar === emo ? T.greenT : T.bg1,
+                        cursor: "pointer",
+                      }}
+                      aria-label={`Avatar ${emo}`}
+                    >
+                      {emo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p style={{ fontSize: 10, fontWeight: 700, color: T.txt2, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+                  Farbe
+                </p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {STORY_BG_OPTIONS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className="r"
+                      disabled={addMemberSaving}
+                      onClick={() => setAddMemberColor(c)}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        background: c,
+                        border: `3px solid ${addMemberColor === c ? T.txt0 : "transparent"}`,
+                        boxShadow: addMemberColor === c ? `0 0 0 2px ${T.bg0}, 0 0 0 4px ${T.green}` : "none",
+                        cursor: "pointer",
+                      }}
+                      aria-label={`Farbe ${c}`}
+                    />
+                  ))}
+                </div>
+              </div>
+              {addMemberError ? (
+                <p style={{ fontSize: 13, color: T.red }} role="alert">
+                  {addMemberError}
+                </p>
+              ) : null}
+              <button
+                type="submit"
+                disabled={addMemberSaving}
+                style={{
+                  width: "100%",
+                  padding: "14px",
+                  borderRadius: 12,
+                  background: T.green,
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 15,
+                  border: "none",
+                  cursor: addMemberSaving ? "wait" : "pointer",
+                  opacity: addMemberSaving ? 0.75 : 1,
+                }}
+              >
+                {addMemberSaving ? "Speichern…" : "Hinzufügen"}
+              </button>
+            </form>
           </div>
         </div>
       )}
