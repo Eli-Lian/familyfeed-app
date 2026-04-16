@@ -25,7 +25,8 @@ export default function Home() {
         return;
       }
 
-      const { data: family, error: famErr } = await supabase
+      // Check 1: Is user a family creator?
+      const { data: ownFamily } = await supabase
         .from("families")
         .select("id")
         .eq("created_by", user.id)
@@ -33,17 +34,28 @@ export default function Home() {
 
       if (cancelled) return;
 
-      if (famErr) {
+      if (ownFamily) {
+        setReady(true);
         setLoading(false);
         return;
       }
 
-      if (!family) {
-        router.push("/onboarding");
+      // Check 2: Is user a member of any family? (e.g. accepted invitation)
+      const { data: memberFamily } = await supabase
+        .from("members")
+        .select("family_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (memberFamily) {
+        setReady(true);
+        setLoading(false);
         return;
       }
 
-      setReady(true);
+      router.push("/onboarding");
       setLoading(false);
     }
 
