@@ -211,7 +211,10 @@ const TYPE: Record<string,{label:string,sym:string,color:string,bg:string,border
 function Av({ m, s=40 }: { m:any, s?:number }) {
   if (!m) return <div style={{ width:s, height:s, borderRadius:"50%", background:T.bg3, flexShrink:0 }} />;
   const base: React.CSSProperties = { width:s, height:s, borderRadius:"50%", flexShrink:0, overflow:"hidden", display:"flex", alignItems:"center", justifyContent:"center" };
-  if (m.photo) return <img src={m.photo} alt={m.name} style={{...base, objectFit:"cover"}} />;
+  const photoUrl = m.photo ?? m.photo_url;
+  if (photoUrl) {
+    return <img key={photoUrl} src={photoUrl} alt={m.name} style={{...base, objectFit:"cover"}} />;
+  }
   return <div style={{...base, background:m.color+"18", border:`1.5px solid ${m.color}33`, fontSize:s*0.46}}>{m.avatar}</div>;
 }
 
@@ -780,8 +783,8 @@ function FamilyApp() {
     if (!file.type.startsWith("image/")) return;
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
     const allowed = ["jpg", "jpeg", "png", "gif", "webp"];
-    const safeExt = allowed.includes(ext) ? ext : "jpg";
-    const path = `${memberId}/${Date.now()}_${Math.random().toString(36).slice(2, 9)}.${safeExt}`;
+    const safeExt = allowed.includes(ext) ? (ext === "jpeg" ? "jpg" : ext) : "jpg";
+    const objectPath = `${memberId}-${Date.now()}.${safeExt}`;
 
     const prevUrl = members.find((m) => m.id === memberId)?.photo;
     const prevPath = extractAvatarsStoragePath(prevUrl);
@@ -789,21 +792,23 @@ function FamilyApp() {
       await supabase.storage.from("avatars").remove([prevPath]);
     }
 
-    const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
+    const { data: uploadData, error: upErr } = await supabase.storage.from("avatars").upload(objectPath, file, {
+      upsert: true,
       cacheControl: "3600",
-      upsert: false,
       contentType: file.type || "image/jpeg",
     });
-    if (upErr) return;
+    if (upErr || !uploadData?.path) return;
 
-    const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
-    const publicUrl = pub.publicUrl;
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("avatars").getPublicUrl(uploadData.path);
 
-    const { error } = await supabase.from("members").update({ photo_url: publicUrl }).eq("id", memberId);
-    if (error) {
-      await supabase.storage.from("avatars").remove([path]);
+    const { error: dbErr } = await supabase.from("members").update({ photo_url: publicUrl }).eq("id", memberId);
+    if (dbErr) {
+      await supabase.storage.from("avatars").remove([uploadData.path]);
       return;
     }
+
     setMembers((p) => p.map((m) => (m.id === memberId ? { ...m, photo: publicUrl } : m)));
   };
 
