@@ -2,7 +2,6 @@
 
 # other local projects in this folder (not part of DoFam app)
 /denkzeit/
-/Familyfeed/
 
 # dependencies
 /node_modules
