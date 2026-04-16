@@ -129,6 +129,9 @@ export default function OnboardingPage() {
 
     setLoading(true);
     const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) {
@@ -152,6 +155,7 @@ export default function OnboardingPage() {
       return;
     }
 
+    const ownerUserId = session?.user?.id ?? user.id;
     const rows = members.map((m, i) => ({
       family_id: family.id,
       name: m.name.trim(),
@@ -159,6 +163,7 @@ export default function OnboardingPage() {
       avatar: m.avatar || "👤",
       color: MEMBER_COLORS[i % MEMBER_COLORS.length],
       photo_url: null as string | null,
+      user_id: i === 0 ? ownerUserId : null,
     }));
 
     const { error: memErr } = await supabase.from("members").insert(rows);

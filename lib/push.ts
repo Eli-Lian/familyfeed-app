@@ -23,6 +23,17 @@ export async function subscribeToPush(memberId: string) {
     applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as unknown as ArrayBuffer,
   });
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user?.id) {
+    const { data: mem } = await supabase.from("members").select("user_id").eq("id", memberId).maybeSingle();
+    const existing = mem?.user_id as string | null | undefined;
+    if (existing == null || existing === user.id) {
+      await supabase.from("members").update({ user_id: user.id }).eq("id", memberId);
+    }
+  }
+
   await supabase.from("push_subscriptions").upsert(
     {
       member_id: memberId,
